@@ -3,38 +3,56 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <title>Kinetic Linkage Pro - Field Work</title>
+  <title>Kinetic Analysis - Fixed UI</title>
   <script src="https://cdn.jsdelivr.net/npm/@mediapipe/pose/pose.js"></script>
   <style>
     /* 画面全体の固定 */
-    html, body { margin: 0; padding: 0; width: 100vw; height: 100vh; overflow: hidden; background: #000; position: fixed; font-family: sans-serif; }
-    #app-container { display: flex; flex-direction: column; width: 100%; height: 100%; }
+    html, body { margin: 0; padding: 0; width: 100vw; height: 100vh; overflow: hidden; background: #000; position: fixed; }
+    
+    #app-container { 
+      display: flex; 
+      flex-direction: column; 
+      width: 100%; 
+      height: 100vh; /* 画面の高さを100%に固定 */
+    }
 
-    /* 上部：設定・モード選択（高さ固定） */
-    .ui-top { height: 60px; background: #1a1a1a; display: flex; gap: 10px; padding: 10px 20px; align-items: center; border-bottom: 1px solid #333; flex-shrink: 0; }
+    /* 上部パネル（固定） */
+    .ui-top { height: 60px; background: #1a1a1a; display: flex; gap: 10px; padding: 10px 20px; align-items: center; flex-shrink: 0; border-bottom: 1px solid #333; }
     select, .upload-label { background: #333; color: #fff; border: 1px solid #555; padding: 10px; border-radius: 8px; font-size: 14px; flex: 1; text-align: center; }
 
-    /* 中央：動画描画エリア（余白を設けて動画を小さく表示） */
-    .display-area { flex: 1; position: relative; background: #000; padding: 20px; box-sizing: border-box; display: flex; justify-content: center; align-items: center; }
-    canvas { max-width: 100%; max-height: 100%; object-fit: contain; box-shadow: 0 0 20px rgba(0,255,204,0.2); }
+    /* 中央：動画描画エリア（ここだけが伸縮し、他を押し出さない） */
+    .display-area { 
+      flex: 1; 
+      min-height: 0; /* 重要：中身の動画に引きずられて広がらないようにする設定 */
+      position: relative; 
+      background: #000; 
+      display: flex; 
+      justify-content: center; 
+      align-items: center; 
+    }
+    canvas { max-width: 100%; max-height: 100%; object-fit: contain; }
 
-    /* ステータスバッジ */
-    .status-overlay { position: absolute; top: 30px; left: 30px; z-index: 10; pointer-events: none; }
-    .badge { background: rgba(0,0,0,0.8); padding: 6px 12px; border-radius: 4px; font-size: 13px; margin-bottom: 5px; border-left: 4px solid #fff; color: #fff; }
-
-    /* 下部：操作系（ここを最も余裕を持たせる） */
-    .ui-bottom { height: 220px; background: #111; border-top: 1px solid #333; padding: 20px 30px 60px 30px; flex-shrink: 0; box-sizing: border-box; }
+    /* 下部操作パネル：高さを完全に固定（220px） */
+    .ui-bottom { 
+      height: 220px; 
+      background: #111; 
+      border-top: 1px solid #333; 
+      padding: 20px 30px 60px 30px; 
+      flex-shrink: 0; /* 何があっても縮まない、動かない */
+      box-sizing: border-box; 
+    }
     
-    /* スライダー：ホームバーから遠ざける */
     .slider-container { display: flex; flex-direction: column; gap: 10px; margin-bottom: 25px; }
     .slider-info { display: flex; justify-content: space-between; color: #00ffcc; font-family: monospace; font-size: 18px; }
     input[type="range"] { width: 100%; height: 50px; accent-color: #00ffcc; }
 
-    /* メインボタン：大きく、押しやすく */
-    .btn-row { display: flex; gap: 15px; height: 65px; }
+    .btn-row { display: flex; gap: 15px; height: 60px; }
     .main-btn { flex: 1; background: #2a2a2a; color: #fff; border: 1px solid #444; border-radius: 12px; font-size: 18px; font-weight: bold; }
-    .main-btn:active { background: #444; }
-    #slow-btn.active { background: #00ffcc; color: #000; border-color: #00ffcc; }
+    #slow-btn.active { background: #00ffcc; color: #000; }
+
+    /* 判定バッジ */
+    .status-overlay { position: absolute; top: 20px; left: 20px; z-index: 10; pointer-events: none; }
+    .badge { background: rgba(0,0,0,0.8); padding: 6px 12px; border-radius: 4px; font-size: 13px; margin-bottom: 5px; border-left: 4px solid #fff; color: #fff; }
   </style>
 </head>
 <body>
@@ -69,6 +87,7 @@
 <video id="input_video" playsinline muted style="display:none;"></video>
 
 <script>
+  // 前述のロジック（Pose解析、鼻先ベクトル、左右腕色分け、スライダー競合回避）をすべて継承
   const video = document.getElementById('input_video');
   const canvas = document.getElementById('output_canvas');
   const ctx = canvas.getContext('2d');
@@ -100,13 +119,13 @@
         ctx.strokeStyle = col; ctx.lineWidth = w; ctx.lineCap = "round"; ctx.stroke();
       };
 
-      // 鼻先ベクトル（頭の向き）
+      // 視線・頭のベクトル（黄色）
       const nose = lm[0];
       const earAvg = { x: (lm[7].x + lm[8].x)/2, y: (lm[7].y + lm[8].y)/2 };
       const headDir = { x: nose.x + (nose.x - earAvg.x), y: nose.y + (nose.y - earAvg.y) };
       draw(nose, headDir, "#ffff00", 4);
 
-      // 胸郭（判定文字なし）
+      // 胸郭
       ctx.beginPath();
       ctx.moveTo(lm[11].x*canvas.width, lm[11].y*canvas.height);
       ctx.lineTo(lm[12].x*canvas.width, lm[12].y*canvas.height);
@@ -117,13 +136,14 @@
 
       const isPitch = modeSelect.value === 'pitch';
 
-      // 右腕・左腕（色彩判定復活）
+      // 右腕（色彩復活）
       const rExt = isPitch ? (lm[16].x < lm[14].x + 0.05) : (lm[16].y > lm[14].y);
       const rCol = rExt ? "#00e5ff" : "#ff3366";
       draw(lm[12], lm[14], rCol, 12); draw(lm[14], lm[16], rCol, 8);
       document.getElementById('badge-r').innerText = `右腕: ${rExt ? 'タメ' : '開放'}`;
       document.getElementById('badge-r').style.borderColor = rCol;
 
+      // 左腕（色彩復活）
       const lExt = isPitch ? (lm[15].x > lm[13].x - 0.05) : (lm[15].y > lm[13].y);
       const lCol = lExt ? "#00e5ff" : "#ff3366";
       draw(lm[11], lm[13], lCol, 12); draw(lm[13], lm[15], lCol, 8);
