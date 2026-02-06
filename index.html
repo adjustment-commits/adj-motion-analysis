@@ -3,74 +3,75 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <title>Kinetic Chain - Recorder Edition</title>
+  <title>Kinetic Chain - Ultimate Analyzer</title>
   <script src="https://cdn.jsdelivr.net/npm/@mediapipe/pose/pose.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js"></script>
   <style>
-    /* 画面の高さを動的に固定 */
+    /* 1. 画面フィット継承：dvhを使用してモバイルブラウザのバーに対応 */
     html, body { 
       margin: 0; padding: 0; width: 100%; height: 100dvh; 
       overflow: hidden; background: #000; color: #fff; font-family: sans-serif;
     }
     #app-container { display: flex; flex-direction: column; width: 100%; height: 100dvh; }
 
-    /* 解析画面：自動縮小 */
+    /* 表示エリア：スクロールなしで最大化 */
     .display-area { 
-      flex: 1; position: relative; background: #000; 
-      display: flex; justify-content: center; align-items: center; overflow: hidden; min-height: 0;
+      flex: 1; position: relative; display: flex; justify-content: center; 
+      align-items: center; overflow: hidden; min-height: 0;
     }
-    canvas { max-width: 100%; max-height: 100%; object-fit: contain; }
+    canvas { max-width: 100%; max-height: 100%; object-fit: contain; z-index: 2; }
 
-    /* 操作パネル：高さを最小限に固定 */
+    /* 操作パネル：高さを固定しUIを凝縮 */
     .ui-panel { 
-      background: #151515; border-top: 1px solid #444;
-      padding: 8px 10px; box-sizing: border-box; flex-shrink: 0;
+      background: #151515; border-top: 1px solid #444; 
+      padding: 10px; flex-shrink: 0; z-index: 5;
     }
-    .slider-row { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
-    input[type="range"] { flex: 1; height: 24px; }
+    .slider-row { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+    input[type="range"] { flex: 1; height: 30px; cursor: pointer; }
 
     .btn-row { display: flex; justify-content: center; gap: 4px; flex-wrap: wrap; }
     button, label, select { 
       background: #333; color: white; border: 1px solid #555; 
-      padding: 5px 8px; border-radius: 4px; font-size: 10px; cursor: pointer;
+      padding: 8px 10px; border-radius: 4px; font-size: 11px; cursor: pointer;
+    }
+
+    /* データ表示：バッジ形式 */
+    .data-overlay { position: absolute; top: 10px; left: 10px; pointer-events: none; z-index: 10; }
+    .badge { 
+      background: rgba(0,0,0,0.8); padding: 5px 8px; margin-bottom: 3px; 
+      border-left: 4px solid #00ffcc; font-size: 11px;
     }
     #rec-btn { background: #d32f2f; border: none; font-weight: bold; }
-    #rec-btn.recording { background: #fff; color: #d32f2f; animation: blink 1s infinite; }
-    @keyframes blink { 0% { opacity: 1; } 50% { opacity: 0.5; } 100% { opacity: 1; } }
-
-    .data-overlay { position: absolute; top: 5px; left: 5px; pointer-events: none; }
-    .badge { background: rgba(0,0,0,0.8); padding: 3px 6px; margin-bottom: 2px; border-left: 3px solid #00ffcc; font-size: 9px; }
-    #fc-flash { position: absolute; top:0; left:0; width:100%; height:100%; pointer-events:none; opacity:0; background: white; z-index: 5; }
+    #rec-btn.active { background: #fff; color: #d32f2f; }
   </style>
 </head>
 <body>
 
 <div id="app-container">
   <div class="display-area">
-    <div id="fc-flash"></div>
     <canvas id="output_canvas"></canvas>
     <div class="data-overlay">
-      <div id="mode-badge" class="badge">投球</div>
-      <div id="torsion-badge" class="badge">捻転差: --°</div>
+      <div id="mode-badge" class="badge">MODE: 投球解析</div>
+      <div id="torsion-badge" class="badge">最大捻転差: --°</div>
+      <div id="trunk-badge" class="badge">胴体：解析中</div>
       <div id="prediction-badge" class="badge" style="border-left-color:#ffcc00;">予測: -- km/h</div>
     </div>
   </div>
 
   <div class="ui-panel">
     <div class="slider-row">
+      <span id="time-display" style="font-size:12px; min-width:40px;">0.0s</span>
       <input type="range" id="seek-bar" value="0" step="0.001">
       <button id="rec-btn" onclick="toggleRecording()">REC</button>
-      <button onclick="exportReport()" style="background:#007bff; border:none;">画像</button>
     </div>
     <div class="btn-row">
       <label for="upload">📹動画<input type="file" id="upload" accept="video/*" style="display:none"></label>
       <select id="analysis-mode" onchange="updateModeUI()">
-        <option value="pitching">投球</option>
-        <option value="batting">打撃</option>
+        <option value="pitching">投球モード</option>
+        <option value="batting">打撃モード</option>
       </select>
       <select id="view-mode">
-        <option value="both">重畳</option>
-        <option value="stick">骨格</option>
+        <option value="both">重畳表示</option>
+        <option value="stick">骨格のみ</option>
       </select>
       <button onclick="togglePlay()">▷/||</button>
       <button onclick="video.playbackRate = 0.25">0.25x</button>
@@ -86,86 +87,104 @@
   const canvas = document.getElementById('output_canvas');
   const ctx = canvas.getContext('2d');
   const seekBar = document.getElementById('seek-bar');
+  const timeDisplay = document.getElementById('time-display');
   const analysisMode = document.getElementById('analysis-mode');
-  const viewMode = document.getElementById('view-mode');
-  const recBtn = document.getElementById('rec-btn');
-
-  let footContacted = false, maxSep = 0, maxHipSpeed = 0, prevHipX = null;
+  
+  let maxSep = 0, maxHipSpeed = 0, prevHipX = null, isSeeking = false;
   let mediaRecorder, recordedChunks = [];
 
   const pose = new Pose({locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/pose/${file}`});
   pose.setOptions({ modelComplexity: 1, smoothLandmarks: true, minDetectionConfidence: 0.5 });
 
   function updateModeUI() {
-    document.getElementById('mode-badge').innerText = analysisMode.value === 'pitching' ? '投球' : '打撃';
+    document.getElementById('mode-badge').innerText = `MODE: ${analysisMode.value === 'pitching' ? '投球' : '打撃'}`;
     resetData();
   }
 
   pose.onResults((results) => {
-    canvas.width = results.image.width; canvas.height = results.image.height;
+    canvas.width = results.image.width;
+    canvas.height = results.image.height;
     ctx.clearRect(0, 0, canvas.width, canvas.height);
-    if (viewMode.value === 'stick') { ctx.fillStyle="#000"; ctx.fillRect(0,0,canvas.width,canvas.height); }
-    else { ctx.drawImage(results.image, 0, 0, canvas.width, canvas.height); }
+
+    if (document.getElementById('view-mode').value === 'stick') {
+      ctx.fillStyle = "#000"; ctx.fillRect(0, 0, canvas.width, canvas.height);
+    } else {
+      ctx.drawImage(results.image, 0, 0, canvas.width, canvas.height);
+    }
 
     if (results.poseLandmarks) {
       const lm = results.poseLandmarks;
-      const lSh = lm[11], rSh = lm[12], lHip = lm[23], rHip = lm[24];
-      const lEl = lm[13], lWr = lm[15], lAk = lm[27], rAk = lm[28];
+      
+      // 中点計算
+      const midSh = { x: (lm[11].x + lm[12].x) / 2, y: (lm[11].y + lm[12].y) / 2 };
+      const midHip = { x: (lm[23].x + lm[24].x) / 2, y: (lm[23].y + lm[24].y) / 2 };
 
-      // スピード & 捻転差ロジック (簡略化維持)
-      const currentHipX = (lHip.x + rHip.x) / 2;
-      if (prevHipX !== null && !video.paused) {
-        const speed = Math.abs(currentHipX - prevHipX) / 0.033;
-        if (speed > maxHipSpeed) maxHipSpeed = speed;
+      // 2. 並進・捻転（継承機能）
+      if (prevHipX !== null && !video.paused && !isSeeking) {
+        const s = Math.abs(midHip.x - prevHipX) / 0.033;
+        if (s > maxHipSpeed) maxHipSpeed = s;
       }
-      prevHipX = currentHipX;
-
-      const sep = Math.abs(Math.atan2(lHip.y-lSh.y, lHip.x-lSh.x) - Math.atan2(rSh.y-lSh.y, rSh.x-lSh.x));
+      prevHipX = midHip.x;
+      const sep = Math.abs(Math.atan2(lm[23].y-lm[11].y, lm[23].x-lm[11].x) - Math.atan2(lm[12].y-lm[11].y, lm[12].x-lm[11].x));
       if (sep * 50 > maxSep) maxSep = sep * 50;
 
-      // 描画（投球腕、両足）
-      const drawPart = (pts, isArm) => {
-        const isExt = isArm ? pts[2].x < pts[1].x : pts[2].x > pts[1].x;
-        drawConnectors(ctx, pts, [[0,1],[1,2]], {color: isExt ? "#00ffff" : "#ff3366", lineWidth: 8});
+      // 3. 描画サブ関数
+      const drawSeg = (p1, p2, col, w) => {
+        ctx.beginPath(); ctx.moveTo(p1.x*canvas.width, p1.y*canvas.height);
+        ctx.lineTo(p2.x*canvas.width, p2.y*canvas.height);
+        ctx.strokeStyle = col; ctx.lineWidth = w; ctx.lineCap = "round"; ctx.stroke();
       };
-      drawPart([lSh, lEl, lWr], true);
-      drawPart([lHip, lm[25], lAk], false);
-      drawPart([rHip, lm[26], rAk], false);
 
-      // 肩ライン
-      ctx.beginPath(); ctx.moveTo(lSh.x*canvas.width, lSh.y*canvas.height); ctx.lineTo(rSh.x*canvas.width, rSh.y*canvas.height);
-      ctx.strokeStyle = (sep > 1.48) ? "#00ffff" : "#ff3366"; ctx.lineWidth = 12; ctx.stroke();
-      
-      document.getElementById('torsion-badge').innerText = `捻転差: ${maxSep.toFixed(1)}°`;
-      const score = analysisMode.value === 'pitching' ? (maxHipSpeed * 350 + maxSep * 0.4 + 80) : (maxHipSpeed * 280 + maxSep * 0.6 + 70);
+      // 色判定ロジック（継承機能）
+      const checkRot = (b, m, e) => e.x < m.x; 
+      const isTrunkExt = lm[11].x > lm[23].x + 0.02;
+
+      // --- 全身セグメント描画（継承機能） ---
+      // 胴体
+      drawSeg(midSh, midHip, isTrunkExt ? "#00ffff" : "#ff3366", 15);
+      drawSeg(lm[11], lm[12], isTrunkExt ? "#00ffff" : "#ff3366", 12);
+      // 腕
+      drawSeg(lm[11], lm[13], checkRot(lm[11], lm[13], lm[15]) ? "#00ffff" : "#ff3366", 10);
+      drawSeg(lm[13], lm[15], checkRot(lm[11], lm[13], lm[15]) ? "#00ffff" : "#ff3366", 7);
+      // 足
+      drawSeg(lm[23], lm[25], lm[25].x > lm[23].x ? "#00ffff":"#ff3366", 12);
+      drawSeg(lm[25], lm[27], lm[27].x > lm[25].x ? "#00ffff":"#ff3366", 9);
+      drawSeg(lm[24], lm[26], lm[26].x < lm[24].x ? "#00ffff":"#ff3366", 12);
+      drawSeg(lm[26], lm[28], lm[28].x < lm[26].x ? "#00ffff":"#ff3366", 9);
+
+      // --- 頭部トラッキング（継承機能） ---
+      const earMid = { x: (lm[7].x + lm[8].x)/2, y: (lm[7].y + lm[8].y)/2 };
+      const fDir = { x: lm[0].x + (lm[0].x - earMid.x)*1.5, y: lm[0].y + (lm[0].y - earMid.y)*1.5 };
+      drawSeg(lm[0], fDir, "#ffff00", 3); // つば
+      ctx.beginPath(); ctx.arc(lm[0].x*canvas.width, lm[0].y*canvas.height, 4, 0, 7); ctx.fillStyle="#ffff00"; ctx.fill();
+
+      // 数値表示更新
+      document.getElementById('torsion-badge').innerText = `最大捻転差: ${maxSep.toFixed(1)}°`;
+      document.getElementById('trunk-badge').innerText = `胴体: ${isTrunkExt ? 'タメ(青)' : '開放(赤)'}`;
+      const isP = analysisMode.value === 'pitching';
+      const score = isP ? (maxHipSpeed*350 + maxSep*0.4 + 80) : (maxHipSpeed*280 + maxSep*0.6 + 70);
       document.getElementById('prediction-badge').innerText = `予測: ${score.toFixed(1)} km/h`;
     }
   });
 
-  // 録画ロジック
+  // 4. 高精度スライダークロージャ（継承機能）
+  seekBar.oninput = () => { isSeeking = true; video.pause(); video.currentTime = seekBar.value; timeDisplay.innerText = video.currentTime.toFixed(1) + "s"; };
+  seekBar.onchange = async () => { await pose.send({image: video}); isSeeking = false; };
+
+  // 5. 録画・エクスポート（継承機能）
   function toggleRecording() {
     if (mediaRecorder && mediaRecorder.state === "recording") {
-      mediaRecorder.stop();
-      recBtn.classList.remove('recording');
-      recBtn.innerText = "REC";
+      mediaRecorder.stop(); document.getElementById('rec-btn').classList.remove('active');
     } else {
-      recordedChunks = [];
-      const stream = canvas.captureStream(30);
+      recordedChunks = []; const stream = canvas.captureStream(30);
       mediaRecorder = new MediaRecorder(stream, { mimeType: 'video/webm' });
       mediaRecorder.ondataavailable = e => recordedChunks.push(e.data);
       mediaRecorder.onstop = () => {
         const blob = new Blob(recordedChunks, { type: 'video/webm' });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a'); a.href = url; a.download = 'analysis.webm'; a.click();
+        const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'analysis.webm'; a.click();
       };
-      mediaRecorder.start();
-      recBtn.classList.add('recording');
-      recBtn.innerText = "STOP";
+      mediaRecorder.start(); document.getElementById('rec-btn').classList.add('active');
     }
-  }
-
-  function exportReport() {
-    const a = document.createElement('a'); a.download = 'report.png'; a.href = canvas.toDataURL(); a.click();
   }
 
   function togglePlay() { video.paused ? video.play() : video.pause(); }
@@ -174,11 +193,7 @@
     video.src = URL.createObjectURL(e.target.files[0]);
     video.onloadedmetadata = () => { seekBar.max = video.duration; requestAnimationFrame(renderLoop); };
   };
-  async function renderLoop() {
-    if (!video.paused || video.seeking) { await pose.send({image: video}); seekBar.value = video.currentTime; }
-    requestAnimationFrame(renderLoop);
-  }
-  seekBar.oninput = () => { video.pause(); video.currentTime = seekBar.value; };
+  async function renderLoop() { if (!video.paused) { await pose.send({image: video}); seekBar.value = video.currentTime; timeDisplay.innerText = video.currentTime.toFixed(1) + "s"; } requestAnimationFrame(renderLoop); }
 </script>
 </body>
 </html>
