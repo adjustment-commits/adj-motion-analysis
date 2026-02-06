@@ -3,156 +3,142 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Kinetic Chain - Auto Impact Capture</title>
+  <title>Advanced Kinetic Chain Analyzer</title>
   <script src="https://cdn.jsdelivr.net/npm/@mediapipe/pose/pose.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js"></script>
   <style>
-    body { font-family: sans-serif; background: #000; color: #fff; margin: 0; text-align: center; overflow: hidden; }
-    .main-view { position: relative; width: 100vw; height: 65vh; background: #000; }
-    canvas { max-width: 100%; max-height: 100%; }
-    .ui-panel { height: 35vh; background: #1a1a1a; padding: 15px; box-sizing: border-box; }
-    .score-display { display: flex; justify-content: space-around; margin-bottom: 15px; }
-    .score-box { border-left: 4px solid #00ffcc; padding: 5px 15px; text-align: left; }
-    .score-label { font-size: 12px; color: #aaa; }
-    .score-value { font-size: 24px; font-weight: bold; color: #00ffcc; }
-    .controls { display: flex; flex-wrap: wrap; gap: 10px; justify-content: center; }
-    button, label { background: #333; color: white; border: 1px solid #555; padding: 12px 18px; border-radius: 8px; cursor: pointer; font-size: 14px; }
-    button:active { background: #00ffcc; color: #000; }
-    #download-link { display: none; }
+    body { font-family: sans-serif; background: #000; color: #fff; margin: 0; overflow: hidden; display: flex; flex-direction: column; height: 100vh; }
+    .display-area { flex: 1; position: relative; background: #050505; display: flex; justify-content: center; align-items: center; }
+    canvas { max-width: 100%; max-height: 100%; object-fit: contain; }
+    
+    .ui-panel { background: #1a1a1a; padding: 15px; border-top: 2px solid #333; }
+    .slider-container { width: 90%; margin: 0 auto 15px; display: flex; align-items: center; gap: 10px; }
+    input[type="range"] { flex: 1; cursor: pointer; }
+
+    .controls { display: flex; justify-content: center; gap: 10px; flex-wrap: wrap; }
+    button, label, select { background: #333; color: white; border: 1px solid #555; padding: 10px 15px; border-radius: 5px; cursor: pointer; font-size: 14px; }
+    button:active { background: #555; }
+    
+    .data-overlay { position: absolute; top: 10px; left: 10px; pointer-events: none; text-align: left; }
+    .badge { background: rgba(0,0,0,0.7); padding: 5px 10px; margin-bottom: 5px; border-left: 4px solid #00ffcc; font-size: 14px; }
   </style>
 </head>
 <body>
 
-<div class="main-view">
-  <video id="input_video" playsinline muted style="display:none;"></video>
+<div class="display-area">
   <canvas id="output_canvas"></canvas>
+  <div class="data-overlay">
+    <div id="torsion-badge" class="badge">捻転差: --°</div>
+    <div id="fc-badge" class="badge">接地：待機中</div>
+  </div>
 </div>
 
 <div class="ui-panel">
-  <div class="score-display">
-    <div class="score-box">
-      <div class="score-label">現在の捻転差</div>
-      <div class="score-value" id="current-sep">0.0°</div>
-    </div>
-    <div class="score-box" style="border-left-color: #ffcc00;">
-      <div class="score-label">MAXタメ(独立性)</div>
-      <div class="score-value" id="max-sep">0.0°</div>
-    </div>
+  <div class="slider-container">
+    <span id="current-time">0:00</span>
+    <input type="range" id="seek-bar" value="0" step="0.01">
+    <span id="duration">0:00</span>
   </div>
 
   <div class="controls">
     <label for="upload">📹 動画選択<input type="file" id="upload" accept="video/*" style="display:none"></label>
-    <button onclick="togglePlay()" id="btn-play">再生/停止</button>
-    <button onclick="saveImage()" style="background: #0055ff;">📸 解析画像を保存</button>
-    <button onclick="resetMax()">リセット</button>
+    
+    <select id="view-mode">
+      <option value="both">① 動画 + スティック</option>
+      <option value="stick">② スティックのみ</option>
+    </select>
+
+    <button onclick="togglePlay()" id="play-btn">再生</button>
+    <button onclick="setSpeed(0.2)">0.2倍速</button>
+    <button onclick="setSpeed(1.0)">標準</button>
   </div>
-  <p style="font-size: 12px; color: #888; margin-top: 10px;">※インパクトの瞬間を検知すると自動で停止します</p>
 </div>
 
-<a id="download-link"></a>
+<video id="input_video" playsinline muted style="display:none;"></video>
 
 <script>
-  const videoElement = document.getElementById('input_video');
-  const canvasElement = document.getElementById('output_canvas');
-  const canvasCtx = canvasElement.getContext('2d');
-  const currentSepDisplay = document.getElementById('current-sep');
-  const maxSepDisplay = document.getElementById('max-sep');
-
-  let maxSep = 0;
-  let isImpactDetected = false;
-  let lastWristX = 0;
+  const video = document.getElementById('input_video');
+  const canvas = document.getElementById('output_canvas');
+  const ctx = canvas.getContext('2d');
+  const seekBar = document.getElementById('seek-bar');
+  const viewMode = document.getElementById('view-mode');
+  const playBtn = document.getElementById('play-btn');
 
   const pose = new Pose({locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/pose/${file}`});
   pose.setOptions({ modelComplexity: 1, smoothLandmarks: true, minDetectionConfidence: 0.5 });
 
   pose.onResults((results) => {
-    canvasElement.width = results.image.width;
-    canvasElement.height = results.image.height;
+    canvas.width = results.image.width;
+    canvas.height = results.image.height;
     
-    // 背景：スティックモード固定
-    canvasCtx.fillStyle = "#000";
-    canvasCtx.fillRect(0, 0, canvasElement.width, canvasElement.height);
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    // モード切り替えロジック
+    if (viewMode.value === 'stick') {
+      ctx.fillStyle = "#000";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+    } else {
+      ctx.drawImage(results.image, 0, 0, canvas.width, canvas.height);
+    }
 
     if (results.poseLandmarks) {
       const lm = results.poseLandmarks;
-      const lSh = lm[11], rSh = lm[12], lHip = lm[23], rHip = lm[24], lWr = lm[15];
-
-      // 1. 捻転差の計算
-      const shAng = Math.atan2(rSh.y - lSh.y, rSh.x - lSh.x) * 180 / Math.PI;
-      const hipAng = Math.atan2(rHip.y - lHip.y, rHip.x - lHip.x) * 180 / Math.PI;
-      const sep = Math.abs(shAng - hipAng);
+      // 骨格描画
+      drawConnectors(ctx, lm, POSE_CONNECTIONS, {color: 'rgba(255,255,255,0.4)', lineWidth: 2});
       
-      currentSepDisplay.innerText = sep.toFixed(1) + "°";
-      if (sep > maxSep) {
-        maxSep = sep;
-        maxSepDisplay.innerText = maxSep.toFixed(1) + "°";
-      }
-
-      // 2. インパクト簡易検知（手首が体幹を超えて加速した瞬間）
-      const wristSpeed = Math.abs(lWr.x - lastWristX);
-      if (!isImpactDetected && lWr.x < lSh.x && wristSpeed > 0.05) {
-        isImpactDetected = true;
-        videoElement.pause();
-        document.getElementById('btn-play').innerText = "再開";
-      }
-      lastWristX = lWr.x;
-
-      // 3. 描画
-      drawConnectors(canvasCtx, lm, POSE_CONNECTIONS, {color: '#333', lineWidth: 2});
+      // 肩甲帯の独立性（色変化ロジック継続）
+      const lSh = lm[11], rSh = lm[12], lHip = lm[23], rHip = lm[24];
+      const sep = Math.abs(Math.atan2(lHip.y-lSh.y, lHip.x-lSh.x) - Math.atan2(rSh.y-lSh.y, rSh.x-lSh.x));
       
-      // 肩甲帯ライン
-      canvasCtx.beginPath();
-      canvasCtx.moveTo(lSh.x * canvasElement.width, lSh.y * canvasElement.height);
-      canvasCtx.lineTo(rSh.x * canvasElement.width, rSh.y * canvasElement.height);
-      canvasCtx.strokeStyle = (sep > 35) ? "#00ffcc" : "#ff3366"; // 35度以上なら青（合格）
-      canvasCtx.lineWidth = 10;
-      canvasCtx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(lSh.x * canvas.width, lSh.y * canvas.height);
+      ctx.lineTo(rSh.x * canvas.width, rSh.y * canvas.height);
+      ctx.strokeStyle = (sep > 1.48) ? "#00ffff" : "#ff3366";
+      ctx.lineWidth = 10;
+      ctx.stroke();
 
-      // 数値のオーバーレイ描画（画像保存用）
-      canvasCtx.fillStyle = "#fff";
-      canvasCtx.font = "30px sans-serif";
-      canvasCtx.fillText("Torsion: " + sep.toFixed(1) + "°", 50, 50);
+      document.getElementById('torsion-badge').innerText = `捻転差: ${(sep * 50).toFixed(1)}°`;
     }
   });
 
+  // 動画読み込み・コントロール
+  document.getElementById('upload').onchange = (e) => {
+    const file = e.target.files[0];
+    video.src = URL.createObjectURL(file);
+    video.onloadedmetadata = () => {
+      seekBar.max = video.duration;
+      document.getElementById('duration').innerText = formatTime(video.duration);
+      requestAnimationFrame(renderLoop);
+    };
+  };
+
   async function renderLoop() {
-    if (!videoElement.paused && !videoElement.ended) {
-      await pose.send({image: videoElement});
+    if (!video.paused || video.seeking) {
+      await pose.send({image: video});
+      seekBar.value = video.currentTime;
+      document.getElementById('current-time').innerText = formatTime(video.currentTime);
     }
     requestAnimationFrame(renderLoop);
   }
 
-  document.getElementById('upload').addEventListener('change', function(e) {
-    maxSep = 0;
-    isImpactDetected = false;
-    videoElement.src = URL.createObjectURL(e.target.files[0]);
-    videoElement.onloadedmetadata = () => {
-      videoElement.play();
-      renderLoop();
-    };
-  });
-
   function togglePlay() {
-    if (videoElement.paused) {
-      isImpactDetected = false; // 再開時は検知フラグをリセット
-      videoElement.play();
-      document.getElementById('btn-play').innerText = "停止";
-    } else {
-      videoElement.pause();
-      document.getElementById('btn-play').innerText = "再生";
-    }
+    if (video.paused) { video.play(); playBtn.innerText = "停止"; }
+    else { video.pause(); playBtn.innerText = "再生"; }
   }
 
-  function resetMax() {
-    maxSep = 0;
-    maxSepDisplay.innerText = "0.0°";
-  }
+  function setSpeed(s) { video.playbackRate = s; }
 
-  function saveImage() {
-    const link = document.getElementById('download-link');
-    link.href = canvasElement.toDataURL("image/png");
-    link.download = "analysis_capture.png";
-    link.click();
+  // スライダー操作（シーク）
+  seekBar.oninput = () => {
+    video.pause();
+    video.currentTime = seekBar.value;
+    playBtn.innerText = "再生";
+  };
+
+  function formatTime(sec) {
+    const m = Math.floor(sec / 60);
+    const s = Math.floor(sec % 60);
+    return `${m}:${s < 10 ? '0'+s : s}`;
   }
 </script>
 </body>
