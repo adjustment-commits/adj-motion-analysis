@@ -3,32 +3,45 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <title>Mirror Pro</title>
+  <title>Kinetic Mirror Pro</title>
   <script src="https://cdn.jsdelivr.net/npm/@mediapipe/pose/pose.js"></script>
   <style>
+    /* iPadの画面揺れ・スクロールを完全に防止 */
     html, body { 
-      margin: 0; padding: 0; width: 100vw; height: 100vh; 
-      overflow: hidden; background: #000; position: fixed;
+      margin: 0; padding: 0; width: 100%; height: 100%; 
+      overflow: hidden; background: #000; position: fixed; 
     }
-    #app-container { width: 100%; height: 100%; display: flex; flex-direction: column; }
+    #app-container { 
+      display: flex; flex-direction: column; width: 100vw; height: 100vh; 
+    }
 
     /* 描画エリア */
-    .display-area { flex: 1; position: relative; display: flex; justify-content: center; align-items: center; overflow: hidden; }
-    canvas { max-width: 100%; max-height: 100%; object-fit: contain; }
+    .display-area { flex: 1; position: relative; background: #000; overflow: hidden; }
+    canvas { width: 100%; height: 100%; object-fit: contain; }
 
-    /* 固定操作パネル */
+    /* 状態表示：腕の判定のみ復活 */
+    .status-overlay { 
+      position: absolute; top: 20px; left: 20px; z-index: 10; pointer-events: none;
+    }
+    .arm-badge { 
+      background: rgba(0,0,0,0.7); padding: 12px 20px; border-radius: 8px;
+      font-weight: bold; font-size: 16px; border-left: 6px solid #00e5ff;
+    }
+
+    /* 操作パネル：iPadホームバーを考慮した高さと余白 */
     .ui-panel { 
-      height: 200px; background: #111; border-top: 1px solid #333; 
-      padding: 20px 25px 50px 25px; box-sizing: border-box; flex-shrink: 0;
+      background: #111; border-top: 1px solid #333; 
+      padding: 15px 25px 60px 25px; /* 下部余白をさらに拡大 */
+      box-sizing: border-box; flex-shrink: 0;
     }
     .slider-row { display: flex; align-items: center; gap: 20px; margin-bottom: 20px; }
-    input[type="range"] { flex: 1; height: 44px; accent-color: #00ffcc; }
-    #time-display { font-family: monospace; font-size: 20px; color: #00ffcc; min-width: 70px; }
+    input[type="range"] { flex: 1; height: 50px; accent-color: #00ffcc; }
+    #time-display { font-family: monospace; font-size: 20px; color: #00ffcc; min-width: 75px; }
 
     .btn-row { display: flex; gap: 15px; height: 60px; }
     button, label, select { 
       background: #2a2a2a; color: white; border: 1px solid #444; border-radius: 12px; 
-      font-size: 15px; font-weight: bold; flex: 1; 
+      font-size: 16px; font-weight: bold; flex: 1; 
       display: flex; justify-content: center; align-items: center; text-align: center;
       -webkit-appearance: none;
     }
@@ -38,18 +51,21 @@
 <body>
 
 <div id="app-container">
-  <div class="display-area"><canvas id="output_canvas"></canvas></div>
+  <div class="display-area">
+    <canvas id="output_canvas"></canvas>
+    <div class="status-overlay">
+      <div id="arm-status" class="arm-badge">腕: 待機中</div>
+    </div>
+  </div>
+
   <div class="ui-panel">
     <div class="slider-row">
       <span id="time-display">0.00s</span>
-      <input type="range" id="seek-bar" value="0" step="0.001">
+      <input type="range" id="seek-bar" value="0" min="0" step="0.001">
     </div>
     <div class="btn-row">
-      <label for="upload">📹動画<input type="file" id="upload" accept="video/*" style="display:none"></label>
-      <select id="view-mode">
-        <option value="both">実写＋骨格</option>
-        <option value="stick">骨格のみ</option>
-      </select>
+      <label for="upload">📹動画選択<input type="file" id="upload" accept="video/*" style="display:none"></label>
+      <select id="view-mode"><option value="both">実写＋骨格</option><option value="stick">骨格のみ</option></select>
       <button onclick="video.paused ? video.play() : video.pause()">▷/||</button>
       <button id="slow-btn" onclick="toggleSlow()">SLOW</button>
     </div>
@@ -64,19 +80,21 @@
   const ctx = canvas.getContext('2d');
   const seekBar = document.getElementById('seek-bar');
   const viewMode = document.getElementById('view-mode');
+  const armStatus = document.getElementById('arm-status');
   const timeDisplay = document.getElementById('time-display');
 
-  let isUserSeeking = false; // スライダー操作中フラグ
+  let isSeeking = false; // スライダー操作フラグ
 
   const pose = new Pose({locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/pose/${file}`});
   pose.setOptions({ modelComplexity: 1, smoothLandmarks: true, minDetectionConfidence: 0.5, minTrackingConfidence: 0.5 });
 
   pose.onResults((results) => {
-    canvas.width = results.image ? results.image.width : canvas.width;
-    canvas.height = results.image ? results.image.height : canvas.height;
+    if (!results.image) return;
+    canvas.width = results.image.width;
+    canvas.height = results.image.height;
     ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-    if (viewMode.value !== 'stick' && results.image) {
+    if (viewMode.value !== 'stick') {
       ctx.drawImage(results.image, 0, 0, canvas.width, canvas.height);
     } else {
       ctx.fillStyle = "#000"; ctx.fillRect(0, 0, canvas.width, canvas.height);
@@ -90,40 +108,42 @@
         ctx.strokeStyle = col; ctx.lineWidth = w; ctx.lineCap = "round"; ctx.stroke();
       };
 
-      // 1. 胸郭（面）
+      // 胸郭
       ctx.beginPath();
       ctx.moveTo(lm[11].x*canvas.width, lm[11].y*canvas.height);
       ctx.lineTo(lm[12].x*canvas.width, lm[12].y*canvas.height);
       ctx.lineTo(lm[24].x*canvas.width, lm[24].y*canvas.height);
       ctx.lineTo(lm[23].x*canvas.width, lm[23].y*canvas.height);
       ctx.closePath();
-      ctx.fillStyle = "rgba(255,255,255,0.15)"; ctx.fill();
-      ctx.strokeStyle = "#fff"; ctx.lineWidth = 1; ctx.stroke();
+      ctx.fillStyle = "rgba(255,255,255,0.15)"; ctx.fill(); ctx.strokeStyle = "#fff"; ctx.stroke();
 
-      // 2. 軸足パワーツリー（右投げ想定）
-      draw(lm[28], lm[26], "#00ffcc", 10); // 足首-膝
-      draw(lm[26], lm[24], "#00ffcc", 10); // 膝-股関節
-      draw(lm[24], lm[12], "#ffffff", 1.5); // 軸連動
+      // パワーツリー（右投げ）
+      draw(lm[28], lm[26], "#00ffcc", 10);
+      draw(lm[26], lm[24], "#00ffcc", 10);
+      draw(lm[24], lm[12], "#ffffff", 2);
 
-      // 3. 腕の「しなり」判定（外旋/内旋）
-      // 手首が肘より背中側なら「青」、リリース方向なら「赤」
-      const armCol = lm[16].x < lm[14].x + 0.05 ? "#00e5ff" : "#ff3366";
+      // 腕の判定と色
+      const isExternal = lm[16].x < lm[14].x + 0.05;
+      const armCol = isExternal ? "#00e5ff" : "#ff3366";
+      armStatus.innerText = isExternal ? "腕: 外旋（タメ）" : "腕: 内旋（リリース）";
+      armStatus.style.borderLeftColor = armCol;
+      
       draw(lm[12], lm[14], armCol, 12); draw(lm[14], lm[16], armCol, 8);
-
-      // 4. サブ（グラブ腕・逆足）
       draw(lm[11], lm[13], "#666", 6); draw(lm[13], lm[15], "#666", 4);
       draw(lm[23], lm[25], "#00e5ff", 8); draw(lm[25], lm[27], "#00e5ff", 6);
     }
+
+    // スライダー更新（操作中でない時のみ）
+    if (!isSeeking) {
+      seekBar.value = video.currentTime;
+      timeDisplay.innerText = video.currentTime.toFixed(2) + "s";
+    }
   });
 
-  // スライダー制御の改善
-  seekBar.addEventListener('mousedown', () => isUserSeeking = true);
-  seekBar.addEventListener('touchstart', () => isUserSeeking = true);
-  seekBar.addEventListener('mouseup', () => isUserSeeking = false);
-  seekBar.addEventListener('touchend', () => isUserSeeking = false);
-
+  // スライダー操作の競合回避
+  seekBar.onpointerdown = () => { isSeeking = true; video.pause(); };
+  seekBar.onpointerup = () => { isSeeking = false; };
   seekBar.oninput = () => {
-    video.pause();
     video.currentTime = seekBar.value;
     timeDisplay.innerText = parseFloat(seekBar.value).toFixed(2) + "s";
   };
@@ -143,12 +163,8 @@
   };
 
   async function render() {
-    if (!video.paused || isUserSeeking || video.currentTime >= 0) {
+    if (!video.paused || isSeeking) {
       await pose.send({image: video});
-      if (!isUserSeeking) {
-        seekBar.value = video.currentTime;
-        timeDisplay.innerText = video.currentTime.toFixed(2) + "s";
-      }
     }
     requestAnimationFrame(render);
   }
