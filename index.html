@@ -3,22 +3,27 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <title>Linkage Pro</title>
+  <title>Kinetic Linkage Pro</title>
   <script src="https://cdn.jsdelivr.net/npm/@mediapipe/pose/pose.js"></script>
   <style>
-    :root { --safe-bottom: 60px; }
+    /* iPadセーフエリア設定 */
+    :root { --safe-padding: 80px; } 
     html, body { margin: 0; padding: 0; width: 100%; height: 100dvh; overflow: hidden; background: #000; color: #fff; font-family: sans-serif; }
     #app-container { display: flex; flex-direction: column; width: 100%; height: 100dvh; }
-    .display-area { flex: 1; position: relative; display: flex; justify-content: center; align-items: center; background: #050505; }
+    
+    .display-area { flex: 1; position: relative; background: #000; display: flex; justify-content: center; align-items: center; }
     canvas { max-width: 100%; max-height: 100%; object-fit: contain; z-index: 2; }
+    
+    /* 上部ステータス */
     .data-overlay { position: absolute; top: 20px; left: 20px; pointer-events: none; z-index: 10; }
-    .badge { background: rgba(0,0,0,0.85); padding: 12px 18px; border-left: 6px solid #00ffcc; font-size: 14px; margin-bottom: 8px; border-radius: 4px; box-shadow: 0 4px 15px rgba(0,0,0,0.5); }
-    .ui-panel { background: linear-gradient(180deg, #1a1a1a, #000); border-top: 1px solid #333; padding: 20px 25px calc(20px + var(--safe-bottom)); flex-shrink: 0; }
-    .slider-row { display: flex; align-items: center; gap: 20px; margin-bottom: 25px; }
+    .badge { background: rgba(0,0,0,0.8); padding: 10px 15px; border-left: 5px solid #00ffcc; font-size: 15px; margin-bottom: 5px; }
+
+    /* 下部操作パネル */
+    .ui-panel { background: #111; border-top: 1px solid #333; padding: 15px 25px var(--safe-padding); flex-shrink: 0; }
+    .slider-row { display: flex; align-items: center; gap: 15px; margin-bottom: 20px; }
     input[type="range"] { flex: 1; height: 44px; accent-color: #00ffcc; }
-    .btn-row { display: flex; justify-content: center; gap: 15px; }
-    button, label { background: #2a2a2a; color: white; border: 1px solid #444; padding: 18px; border-radius: 12px; font-size: 15px; font-weight: bold; flex: 1; text-align: center; box-shadow: 0 2px 5px rgba(0,0,0,0.3); }
-    #pred-badge { border-left-color: #ffcc00; color: #ffcc00; }
+    .btn-row { display: flex; justify-content: space-around; gap: 10px; flex-wrap: wrap; }
+    button, label, select { background: #2a2a2a; color: white; border: 1px solid #444; padding: 15px 10px; border-radius: 8px; font-size: 14px; font-weight: bold; flex: 1; text-align: center; }
   </style>
 </head>
 <body>
@@ -27,21 +32,23 @@
   <div class="display-area">
     <canvas id="output_canvas"></canvas>
     <div class="data-overlay">
-      <div id="link-status" class="badge">軸連動：解析中</div>
-      <div id="rotation-status" class="badge">腕の状態：待機</div>
-      <div id="pred-badge" class="badge">推定球速: -- km/h</div>
+      <div id="mode-badge" class="badge">PITCHING MODE</div>
+      <div id="trunk-badge" class="badge">胸郭ボックス: 解析中</div>
+      <div id="arm-badge" class="badge">腕: 判定中</div>
     </div>
   </div>
 
   <div class="ui-panel">
     <div class="slider-row">
-      <span id="time-val" style="font-family:monospace; font-size:18px; min-width:70px;">0.00s</span>
+      <span id="time-val" style="min-width:60px;">0.00s</span>
       <input type="range" id="seek-bar" value="0" step="0.001">
     </div>
     <div class="btn-row">
       <label for="upload">📹 VIDEO<input type="file" id="upload" accept="video/*" style="display:none"></label>
+      <select id="analysis-mode"><option value="pitch">投球解析</option><option value="bat">打撃解析</option></select>
+      <select id="view-mode"><option value="both">実写+骨格</option><option value="stick">骨格のみ</option></select>
       <button onclick="video.paused ? video.play() : video.pause()">▷/||</button>
-      <button onclick="video.playbackRate = (video.playbackRate === 0.25 ? 1.0 : 0.25)">SLOW (0.25x)</button>
+      <button onclick="video.playbackRate = (video.playbackRate === 0.25 ? 1.0 : 0.25)">SLOW</button>
     </div>
   </div>
 </div>
@@ -54,6 +61,8 @@
   const ctx = canvas.getContext('2d');
   const seekBar = document.getElementById('seek-bar');
   const timeVal = document.getElementById('time-val');
+  const analysisMode = document.getElementById('analysis-mode');
+  const viewMode = document.getElementById('view-mode');
 
   const pose = new Pose({locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/pose/${file}`});
   pose.setOptions({ modelComplexity: 1, smoothLandmarks: true, minDetectionConfidence: 0.5, minTrackingConfidence: 0.5 });
@@ -63,7 +72,12 @@
     canvas.width = results.image.width;
     canvas.height = results.image.height;
     ctx.clearRect(0, 0, canvas.width, canvas.height);
-    ctx.drawImage(results.image, 0, 0, canvas.width, canvas.height);
+
+    if (viewMode.value === 'stick') {
+      ctx.fillStyle = "#000"; ctx.fillRect(0, 0, canvas.width, canvas.height);
+    } else {
+      ctx.drawImage(results.image, 0, 0, canvas.width, canvas.height);
+    }
 
     if (results.poseLandmarks) {
       const lm = results.poseLandmarks;
@@ -73,54 +87,47 @@
 
       const drawL = (p1, p2, col, w, glow=false) => {
         ctx.beginPath();
-        if(glow) { ctx.shadowBlur = 15; ctx.shadowColor = col; }
-        ctx.moveTo(p1.x*canvas.width, p1.y*canvas.height);
-        ctx.lineTo(p2.x*canvas.width, p2.y*canvas.height);
-        ctx.strokeStyle = col; ctx.lineWidth = w; ctx.lineCap = "round"; ctx.stroke();
-        ctx.shadowBlur = 0;
+        if(glow) { ctx.shadowBlur = 10; ctx.shadowColor = col; }
+        ctx.moveTo(p1.x*canvas.width, p1.y*canvas.height); ctx.lineTo(p2.x*canvas.width, p2.y*canvas.height);
+        ctx.strokeStyle = col; ctx.lineWidth = w; ctx.lineCap = "round"; ctx.stroke(); ctx.shadowBlur = 0;
       };
 
       // 1. 胸郭ボックス
       ctx.beginPath();
-      ctx.moveTo(shL.x*canvas.width, shL.y*canvas.height);
-      ctx.lineTo(shR.x*canvas.width, shR.y*canvas.height);
-      ctx.lineTo(hipR.x*canvas.width, hipR.y*canvas.height);
-      ctx.lineTo(hipL.x*canvas.width, hipL.y*canvas.height);
+      ctx.moveTo(shL.x*canvas.width, shL.y*canvas.height); ctx.lineTo(shR.x*canvas.width, shR.y*canvas.height);
+      ctx.lineTo(hipR.x*canvas.width, hipR.y*canvas.height); ctx.lineTo(hipL.x*canvas.width, hipL.y*canvas.height);
       ctx.closePath();
-      ctx.fillStyle = "rgba(0, 255, 204, 0.15)"; ctx.fill();
-      ctx.strokeStyle = "rgba(255,255,255,0.6)"; ctx.lineWidth = 2; ctx.stroke();
+      ctx.fillStyle = "rgba(255,255,255,0.2)"; ctx.fill();
+      ctx.strokeStyle = "#fff"; ctx.lineWidth = 2; ctx.stroke();
 
-      // 2. 軸足～肩のパワーツリー（右投げ用：右足→右肩）
-      drawL(ankR, kneeR, "#00ffcc", 12, true);
-      drawL(kneeR, hipR, "#00ffcc", 12, true);
-      drawL(hipR, shR, "#ffffff", 4); 
+      // 2. パワーツリー連動（軸足から投球肩）
+      drawL(ankR, kneeR, "#00ffcc", 10, true); drawL(kneeR, hipR, "#00ffcc", 10, true);
+      drawL(hipR, shR, "#ffffff", 4);
 
-      // 3. 内外旋の判定ロジック (胸郭ボックスの回転軸に対する手の位置)
-      // 青 = 外旋(タメ) / 赤 = 内旋(開放)
-      const rArmCol = wrR.x > elR.x ? "#ff3366" : "#00e5ff"; 
-      drawL(shR, elR, rArmCol, 14); drawL(elR, wrR, rArmCol, 10);
-      
-      const lArmCol = wrL.x < elL.x ? "#ff3366" : "#00e5ff";
-      drawL(shL, elL, lArmCol, 10); drawL(elL, wrL, lArmCol, 7);
+      // 3. 改良版 内外旋判定 (腕としなりの解析)
+      // 投球腕：肩と肘のラインに対して手首が背中側（外旋）か前（内旋）か
+      const isPitchMode = analysisMode.value === 'pitch';
+      const armCondition = isPitchMode ? (wrR.x < elR.x + 0.05) : (wrR.x < shR.x); 
+      const armCol = armCondition ? "#00e5ff" : "#ff3366";
+      drawL(shR, elR, armCol, 14); drawL(elR, wrR, armCol, 10);
 
-      // 脚の連動
-      drawL(hipL, kneeL, kneeL.x > hipL.x ? "#00e5ff" : "#ff3366", 14);
-      drawL(kneeL, ankL, ankL.x > kneeL.x ? "#00e5ff" : "#ff3366", 10);
+      // グラブ腕
+      const grabCol = (wrL.x < elL.x) ? "#ff3366" : "#00e5ff";
+      drawL(shL, elL, grabCol, 10); drawL(elL, wrL, grabCol, 6);
 
-      // 4. 解析テキスト更新
-      const linkage = Math.abs(shR.y - ankR.y); // 上下の伸展
-      const shDist = Math.abs(shR.x - shL.x);   // 胸郭の開き
-      
-      document.getElementById('link-status').innerText = linkage > 0.65 ? "軸連動：一本調子" : "軸連動：タメあり";
-      document.getElementById('rotation-status').innerText = wrR.x > elR.x ? "腕：内旋（リリース）" : "腕：外旋（タメ）";
-      
-      // 推定球速（しなり flex と 軸の伸展 linkage から推測）
-      const flex = Math.abs(wrR.x - shR.x);
-      const estSpeed = (flex * 140 + linkage * 40 + 65);
-      document.getElementById('pred-badge').innerText = `推定球速: ${estSpeed.toFixed(0)} km/h`;
+      // 足の連動
+      drawL(hipL, kneeL, (kneeL.x > hipL.x ? "#00e5ff" : "#ff3366"), 12);
+      drawL(kneeL, ankL, (ankL.x > kneeL.x ? "#00e5ff" : "#ff3366"), 10);
+
+      // 4. 表示更新
+      document.getElementById('mode-badge').innerText = isPitchMode ? "PITCHING MODE" : "BATTING MODE";
+      document.getElementById('trunk-badge').innerText = `胸郭: ${Math.abs(shR.x-shL.x) > 0.15 ? '正面' : '半身'}`;
+      document.getElementById('arm-badge').innerText = `腕: ${armCondition ? '外旋（タメ）' : '内旋（リリース）'}`;
+      document.getElementById('arm-badge').style.borderLeftColor = armCol;
     }
   });
 
+  // UI制御
   seekBar.oninput = () => { video.pause(); video.currentTime = seekBar.value; };
   document.getElementById('upload').onchange = (e) => {
     const file = e.target.files[0];
