@@ -3,90 +3,107 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-  <title>Kinetic Master - Final Fix</title>
+  <title>Kinetic Analysis - Responsive Base</title>
   <script src="https://cdn.jsdelivr.net/npm/@mediapipe/pose/pose.js"></script>
   <style>
-    /* 全体を固定 */
-    html, body { margin: 0; padding: 0; width: 100vw; height: 100vh; overflow: hidden; background: #000; position: fixed; }
-    #app-container { display: flex; flex-direction: column; width: 100%; height: 100vh; }
+    /* 土台の設定：画面全体を100とした比率で管理 */
+    html, body { 
+      margin: 0; padding: 0; width: 100%; height: 100%; 
+      overflow: hidden; background: #000; font-family: sans-serif;
+    }
+    
+    #app-container { 
+      display: flex; flex-direction: column; 
+      width: 100vw; height: 100vh; 
+    }
 
-    /* 上部設定 */
-    .ui-top { height: 50px; background: #1a1a1a; display: flex; gap: 8px; padding: 5px 15px; align-items: center; flex-shrink: 0; }
-    select, .upload-label { background: #333; color: #fff; border: 1px solid #555; padding: 8px; border-radius: 6px; font-size: 12px; flex: 1; text-align: center; }
+    /* 1. ヘッダー：常に上部に固定 */
+    .base-header { 
+      height: 60px; background: #1a1a1a; flex-shrink: 0;
+      display: flex; align-items: center; gap: 10px; padding: 0 15px;
+    }
+    select, .upload-label { 
+      background: #333; color: #fff; border: 1px solid #555; 
+      padding: 8px; border-radius: 6px; font-size: 13px; flex: 1; text-align: center;
+    }
 
-    /* 動画エリア（絶対に押し出さない） */
-    .display-area { flex: 1; min-height: 0; position: relative; display: flex; justify-content: center; align-items: center; }
-    canvas { max-width: 100%; max-height: 100%; object-fit: contain; }
+    /* 2. メイン：デバイスの余ったスペースをすべて使い、自動で大きさが変わる */
+    .base-main { 
+      flex: 1; min-height: 0; position: relative; 
+      display: flex; justify-content: center; align-items: center;
+    }
+    canvas { max-width: 95%; max-height: 95%; object-fit: contain; }
 
-    /* --- ここから最重要：ホームバー完全隔離デッキ --- */
-    .ui-bottom-deck { 
-      background: #111; 
-      border-top: 1px solid #444; 
-      /* 下から100px浮かせることでホームバーとの接触を物理的に断つ */
-      padding: 20px 20px 100px 20px; 
+    /* 3. 操作デッキ：画面下部から「浮いた」位置をキープする土台 */
+    .base-footer { 
+      background: #111; border-top: 1px solid #333;
+      padding: 20px 20px calc(env(safe-area-inset-bottom) + 50px) 20px; 
       flex-shrink: 0;
     }
+    
+    .control-panel { max-width: 800px; margin: 0 auto; } /* PCや大型タブレットでも広がりすぎない */
 
-    /* メイン操作（再生とスライダー） */
-    .main-row { display: flex; align-items: center; gap: 15px; margin-bottom: 15px; }
+    /* 操作パーツ */
+    .slider-row { display: flex; align-items: center; gap: 15px; margin-bottom: 20px; }
     .play-btn { 
-      width: 70px; height: 70px; background: #00ffcc; color: #000; 
-      border: none; border-radius: 50%; font-size: 30px; flex-shrink: 0; 
+      width: 60px; height: 60px; background: #00ffcc; color: #000; 
+      border: none; border-radius: 50%; font-size: 24px; flex-shrink: 0;
     }
-    .seek-box { flex: 1; }
-    input[type="range"] { width: 100%; height: 40px; accent-color: #00ffcc; }
+    input[type="range"] { flex: 1; height: 30px; accent-color: #00ffcc; }
 
-    /* サブ操作（コマ送りとスロー） */
-    .sub-row { display: flex; gap: 10px; }
+    .btn-row { display: flex; gap: 10px; }
     .action-btn { 
-      flex: 1; height: 55px; background: #2a2a2a; color: #fff; 
-      border: 1px solid #555; border-radius: 12px; font-size: 16px; font-weight: bold; 
+      flex: 1; height: 50px; background: #2a2a2a; color: #fff; 
+      border: 1px solid #444; border-radius: 10px; font-weight: bold;
     }
     .action-btn.active { background: #00ffcc; color: #000; }
 
-    /* バッジ */
-    .badge-area { position: absolute; top: 15px; left: 15px; z-index: 100; pointer-events: none; }
-    .badge { background: rgba(0,0,0,0.8); padding: 5px 10px; border-radius: 4px; font-size: 13px; margin-bottom: 5px; border-left: 4px solid #fff; color: #fff; }
+    /* 情報バッジ */
+    .badge-layer { position: absolute; top: 10px; left: 10px; pointer-events: none; }
+    .badge { background: rgba(0,0,0,0.7); color: #fff; padding: 4px 8px; font-size: 11px; margin-bottom: 3px; border-left: 3px solid #00ffcc; }
   </style>
 </head>
 <body>
 
 <div id="app-container">
-  <div class="ui-top">
-    <label class="upload-label">📹 動画選択<input type="file" id="upload" accept="video/*" style="display:none"></label>
+  <div class="base-header">
+    <label class="upload-label">📹 選択<input type="file" id="upload" accept="video/*" style="display:none"></label>
     <select id="mode-select"><option value="pitch">投球モード</option><option value="bat">打撃モード</option></select>
     <select id="view-mode"><option value="both">実写＋骨格</option><option value="stick">骨格のみ</option></select>
   </div>
 
-  <div class="display-area">
+  <div class="base-main">
     <canvas id="output_canvas"></canvas>
-    <div class="badge-area">
+    <div class="badge-layer">
       <div id="badge-r" class="badge">右腕: --</div>
       <div id="badge-l" class="badge">左腕: --</div>
     </div>
   </div>
 
-  <div class="ui-bottom-deck">
-    <div class="main-row">
-      <button class="play-btn" id="play-btn">▶</button>
-      <div class="seek-box">
-        <div style="color:#00ffcc; font-family:monospace; margin-bottom:5px;">
-          <span id="time-display">0.00</span> / <span id="dur-display">0.00</span>s
+  <div class="base-footer">
+    <div class="control-panel">
+      <div class="slider-row">
+        <button class="play-btn" id="play-btn">▶</button>
+        <div style="flex:1">
+          <div style="color:#00ffcc; font-size:12px; margin-bottom:4px">
+            <span id="cur-time">0.00</span> / <span id="total-time">0.00</span>s
+          </div>
+          <input type="range" id="seek-bar" value="0" step="0.001">
         </div>
-        <input type="range" id="seek-bar" value="0" step="0.001">
       </div>
-    </div>
-    <div class="sub-row">
-      <button class="action-btn" onclick="step(-1)">◀ 戻す</button>
-      <button class="action-btn" id="slow-btn" onclick="toggleSlow()">SLOW</button>
-      <button class="action-btn" onclick="step(1)">送る ▶</button>
+      <div class="btn-row">
+        <button class="action-btn" onclick="step(-1)">◀ 戻す</button>
+        <button class="action-btn" id="slow-btn" onclick="toggleSlow()">SLOW</button>
+        <button class="action-btn" onclick="step(1)">送る ▶</button>
+      </div>
     </div>
   </div>
 </div>
 
-<video id="v" playsinline muted style="display:none;"></video>
+<video id="v" playsinline muted style="display:none"></video>
 
 <script>
+  // 前回のロジック（腕の色分け判定、頭のベクトル、終了後の追従）を全て適用
   const v = document.getElementById('v'), canvas = document.getElementById('output_canvas'), ctx = canvas.getContext('2d');
   const seekBar = document.getElementById('seek-bar'), playBtn = document.getElementById('play-btn');
   let isSeeking = false;
@@ -95,10 +112,10 @@
   pose.setOptions({ modelComplexity: 1, smoothLandmarks: true, minDetectionConfidence: 0.5, minTrackingConfidence: 0.5 });
 
   pose.onResults((r) => {
-    canvas.width = r.image ? r.image.width : canvas.width;
-    canvas.height = r.image ? r.image.height : canvas.height;
+    if (!r.image) return;
+    canvas.width = r.image.width; canvas.height = r.image.height;
     ctx.clearRect(0, 0, canvas.width, canvas.height);
-    if (document.getElementById('view-mode').value !== 'stick' && r.image) ctx.drawImage(r.image, 0, 0, canvas.width, canvas.height);
+    if (document.getElementById('view-mode').value !== 'stick') ctx.drawImage(r.image, 0, 0, canvas.width, canvas.height);
     
     if (r.poseLandmarks) {
       const lm = r.poseLandmarks;
@@ -108,13 +125,8 @@
         ctx.strokeStyle = col; ctx.lineWidth = w; ctx.lineCap = "round"; ctx.stroke();
       };
 
-      // 頭・胸郭・腕（左右色分け）・脚
       const nose = lm[0], ear = { x: (lm[7].x + lm[8].x)/2, y: (lm[7].y + lm[8].y)/2 };
       draw(nose, { x: nose.x + (nose.x - ear.x), y: nose.y + (nose.y - ear.y) }, "#ffff00", 4);
-
-      ctx.beginPath(); ctx.moveTo(lm[11].x*canvas.width, lm[11].y*canvas.height); ctx.lineTo(lm[12].x*canvas.width, lm[12].y*canvas.height);
-      ctx.lineTo(lm[24].x*canvas.width, lm[24].y*canvas.height); ctx.lineTo(lm[23].x*canvas.width, lm[23].y*canvas.height); ctx.closePath();
-      ctx.fillStyle = "rgba(255,255,255,0.15)"; ctx.fill(); ctx.strokeStyle = "#fff"; ctx.stroke();
 
       const isP = document.getElementById('mode-select').value === 'pitch';
       const rExt = isP ? (lm[16].x < lm[14].x + 0.05) : (lm[16].y > lm[14].y);
@@ -132,13 +144,13 @@
       draw(lm[24], lm[26], "#00ffcc", 10); draw(lm[26], lm[28], "#00ffcc", 10);
       draw(lm[23], lm[25], "#00ffcc", 10); draw(lm[25], lm[27], "#00ffcc", 10);
     }
-    if (!isSeeking) { seekBar.value = v.currentTime; document.getElementById('time-display').innerText = v.currentTime.toFixed(2); }
+    if (!isSeeking) { seekBar.value = v.currentTime; document.getElementById('cur-time').innerText = v.currentTime.toFixed(2); }
   });
 
   playBtn.onclick = () => { if (v.paused) { v.play(); playBtn.innerText = "‖"; } else { v.pause(); playBtn.innerText = "▶"; } };
   seekBar.onpointerdown = () => { isSeeking = true; v.pause(); playBtn.innerText = "▶"; };
   seekBar.onpointerup = () => { isSeeking = false; };
-  seekBar.oninput = () => { v.currentTime = seekBar.value; document.getElementById('time-display').innerText = parseFloat(seekBar.value).toFixed(2); pose.send({image: v}); };
+  seekBar.oninput = () => { v.currentTime = seekBar.value; document.getElementById('cur-time').innerText = parseFloat(seekBar.value).toFixed(2); pose.send({image: v}); };
   
   function step(d) { v.pause(); playBtn.innerText = "▶"; v.currentTime += d * 0.033; pose.send({image: v}); }
   function toggleSlow() { v.playbackRate = v.playbackRate === 1.0 ? 0.25 : 1.0; document.getElementById('slow-btn').classList.toggle('active', v.playbackRate === 0.25); }
@@ -147,7 +159,7 @@
     const file = e.target.files[0];
     if (file) {
       v.src = URL.createObjectURL(file);
-      v.onloadedmetadata = () => { seekBar.max = v.duration; document.getElementById('dur-display').innerText = v.duration.toFixed(2); v.play(); playBtn.innerText = "‖"; requestAnimationFrame(render); };
+      v.onloadedmetadata = () => { seekBar.max = v.duration; document.getElementById('total-time').innerText = v.duration.toFixed(2); v.play(); playBtn.innerText = "‖"; requestAnimationFrame(render); };
     }
   };
   async function render() { if (!v.paused || isSeeking) { await pose.send({image: v}); } requestAnimationFrame(render); }
