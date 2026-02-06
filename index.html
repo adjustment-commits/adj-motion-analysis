@@ -3,35 +3,50 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-  <title>Kinetic Pro Hybrid Fix</title>
+  <title>Kinetic Pro - Fixed UI</title>
   <script src="https://cdn.jsdelivr.net/npm/@mediapipe/pose/pose.js"></script>
   <style>
+    /* 全体レイアウト：下部を340pxで完全に固定 */
     html, body { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; background: #000; color: #fff; font-family: sans-serif; }
-    #layout { display: grid; grid-template-rows: 105px 1fr 340px; width: 100vw; height: 100vh; }
-    
-    /* ヘッダー：ここを2段にして、スイッチを見やすく配置 */
-    .header { background: #1a1a1a; padding: 10px; border-bottom: 1px solid #333; display: flex; flex-direction: column; gap: 8px; }
-    .header-row { display: flex; gap: 8px; }
-    .top-btn { flex: 1; height: 42px; background: #333; color: #fff; border: 1px solid #555; border-radius: 8px; font-weight: bold; font-size: 13px; display: flex; align-items: center; justify-content: center; cursor: pointer; }
-    select.top-btn { appearance: none; -webkit-appearance: none; text-align-last: center; background-image: url('data:image/svg+xml;charset=UTF-8,<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="white"><path d="M7 10l5 5 5-5z"/></svg>'); background-repeat: no-repeat; background-position: right 10px center; padding-right: 20px; }
+    #layout { 
+      display: flex; 
+      flex-direction: column; 
+      width: 100vw; 
+      height: 100vh; 
+    }
 
-    .main-view { display: flex; width: 100%; height: 100%; background: #000; gap: 2px; }
+    .header { background: #1a1a1a; padding: 10px 15px; border-bottom: 1px solid #333; flex-shrink: 0; }
+    .header-row { display: flex; gap: 8px; margin-bottom: 8px; }
+    .header-row:last-child { margin-bottom: 0; }
+    .top-btn { flex: 1; height: 42px; background: #333; color: #fff; border: 1px solid #555; border-radius: 8px; font-weight: bold; font-size: 13px; display: flex; align-items: center; justify-content: center; }
+
+    /* メイン表示：ここが伸縮して調整される */
+    .main-view { flex: 1; display: flex; background: #000; gap: 2px; min-height: 0; }
     .view-pane { flex: 1; position: relative; display: flex; justify-content: center; align-items: center; overflow: hidden; border: 1px solid #222; }
     canvas { width: 100%; height: 100%; object-fit: contain; }
-    .hidden-pane { display: none; } 
+    .hidden-pane { display: none !important; } 
 
-    .deck { background: #111; border-top: 2px solid #444; padding: 20px 30px 100px 30px; box-sizing: border-box; }
-    .slider-row { display: flex; align-items: center; gap: 20px; margin-bottom: 20px; }
-    .play-trigger { width: 75px; height: 75px; border-radius: 50%; background: #00ffcc; color: #000; border: none; font-size: 32px; }
-    .time-txt { color: #00ffcc; font-family: monospace; font-size: 20px; font-weight: bold; }
+    /* 下部パネル：位置をガッチリ固定 */
+    .deck { 
+      height: 340px; /* 高さを数値で固定 */
+      background: #111; 
+      border-top: 2px solid #444; 
+      padding: 15px 30px 100px 30px; /* 下部余白を確保してボタンを上に */
+      box-sizing: border-box;
+      flex-shrink: 0; /* これが重要：絶対に潰れない */
+    }
+
+    .slider-row { display: flex; align-items: center; gap: 20px; margin-bottom: 15px; }
+    .play-trigger { width: 70px; height: 70px; border-radius: 50%; background: #00ffcc; color: #000; border: none; font-size: 32px; flex-shrink: 0; }
+    .time-txt { color: #00ffcc; font-family: monospace; font-size: 18px; font-weight: bold; }
     input[type="range"] { width: 100%; height: 45px; accent-color: #00ffcc; }
 
-    .btn-row { display: flex; gap: 12px; margin-bottom: 12px; }
-    .f-btn { flex: 1; height: 60px; background: #2a2a2a; color: #fff; border: 1px solid #555; border-radius: 12px; font-weight: bold; font-size: 16px; }
+    .btn-row { display: flex; gap: 10px; margin-bottom: 10px; }
+    .f-btn { flex: 1; height: 55px; background: #2a2a2a; color: #fff; border: 1px solid #555; border-radius: 12px; font-weight: bold; font-size: 15px; }
     .rec-btn { background: #333; color: #00ffcc; border: 2px solid #00ffcc; }
     .rec-active { background: #ff3366 !important; color: #fff !important; animation: blink 1s infinite; }
-    @keyframes blink { 0%, 100% { opacity: 1; } 50% { opacity: 0.7; } }
-    .label-tag { position: absolute; top: 10px; left: 10px; background: rgba(0,0,0,0.6); padding: 2px 8px; border-radius: 4px; font-size: 10px; color: #00ffcc; }
+    @keyframes blink { 0% { opacity: 1; } 50% { opacity: 0.7; } 100% { opacity: 1; } }
+    .label-tag { position: absolute; top: 10px; left: 10px; background: rgba(0,0,0,0.6); padding: 2px 8px; border-radius: 4px; font-size: 10px; color: #00ffcc; pointer-events: none; }
   </style>
 </head>
 <body>
@@ -53,7 +68,7 @@
   </div>
 
   <div class="main-view">
-    <div class="view-pane" id="paneL"><canvas id="cvL"></canvas><div class="label-tag">MAIN / LEFT</div></div>
+    <div class="view-pane" id="paneL"><canvas id="cvL"></canvas><div class="label-tag">MAIN</div></div>
     <div class="view-pane hidden-pane" id="paneR"><canvas id="cvR"></canvas><div class="label-tag">RIGHT</div></div>
   </div>
 
@@ -65,7 +80,9 @@
         <input type="range" id="sk" value="0" step="0.001">
       </div>
     </div>
-    <div class="btn-row"><button id="recBtn" class="f-btn rec-btn" onclick="toggleRec()">● 解析動画を書き出し</button></div>
+    <div class="btn-row">
+      <button id="recBtn" class="f-btn rec-btn" onclick="toggleRec()">● 解析動画を書き出し</button>
+    </div>
     <div class="btn-row">
       <button class="f-btn" onclick="jump(-0.033)">◀ 戻す</button>
       <button class="f-btn" id="sl" onclick="slow()">SLOW (1x)</button>
@@ -78,7 +95,7 @@
 <video id="vdR" playsinline muted style="display:none"></video>
 
 <script>
-  // 前述のスクリプト（左右処理とスロー、録画機能）を全てここに集約
+  // スクリプト部分は前回の同期・切り替え・録画機能をすべて継承
   const vds = { L: document.getElementById('vdL'), R: document.getElementById('vdR') };
   const cvs = { L: document.getElementById('cvL'), R: document.getElementById('cvR') };
   const ctxs = { L: cvs.L.getContext('2d'), R: cvs.R.getContext('2d') };
