@@ -3,130 +3,108 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Shoulder Girdle & Core Analyzer</title>
+  <title>Kinetic Chain Analyzer Pro</title>
   <script src="https://cdn.jsdelivr.net/npm/@mediapipe/pose/pose.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js"></script>
   <style>
-    body { font-family: 'Helvetica Neue', Arial, sans-serif; background: #000; color: #fff; margin: 0; overflow-x: hidden; }
-    #container { display: flex; flex-direction: column; align-items: center; padding: 10px; }
-    canvas { width: 100%; max-width: 800px; border-radius: 8px; box-shadow: 0 0 20px rgba(0,255,204,0.3); }
-    .ui-panel { background: rgba(30,30,30,0.9); width: 100%; max-width: 800px; padding: 15px; border-radius: 0 0 8px 8px; box-sizing: border-box; }
-    .data-display { font-size: 1.2rem; font-weight: bold; color: #00ffcc; margin-bottom: 10px; text-align: center; }
-    .controls { display: flex; flex-wrap: wrap; gap: 10px; justify-content: center; }
-    button, label { background: #333; color: white; border: 1px solid #555; padding: 10px 15px; border-radius: 5px; cursor: pointer; font-size: 14px; }
-    button:active { background: #555; }
-    input[type="file"] { display: none; }
-    .highlight { color: #ff3366; }
+    body { font-family: 'Avenir', sans-serif; background: #050505; color: #fff; margin: 0; }
+    #ui-overlay { position: absolute; top: 10px; left: 10px; z-index: 10; pointer-events: none; }
+    .status-badge { background: rgba(0,0,0,0.7); padding: 10px; border-left: 4px solid #00ffcc; margin-bottom: 5px; }
+    canvas { width: 100vw; height: 100vh; object-fit: contain; }
+    .controls { position: fixed; bottom: 20px; width: 100%; display: flex; justify-content: center; gap: 10px; }
+    label, button { background: #222; border: 1px solid #444; color: white; padding: 12px 20px; border-radius: 30px; cursor: pointer; }
+    #fc-flash { position: absolute; top:0; left:0; width:100%; height:100%; pointer-events:none; opacity:0; transition: 0.2s; background: white; }
   </style>
 </head>
 <body>
 
-<div id="container">
-  <div class="data-display">
-    捻転差（連動性）: <span id="torsion-value">--</span>°
-  </div>
-  
-  <canvas id="output_canvas"></canvas>
-
-  <div class="ui-panel">
-    <div class="controls">
-      <label for="upload">📹 動画を選択
-        <input type="file" id="upload" accept="video/*">
-      </label>
-      <button onclick="togglePlay()">再生/停止</button>
-      <button onclick="setSpeed(0.5)">0.5倍速</button>
-      <button onclick="setSpeed(1.0)">標準速</button>
-    </div>
-  </div>
+<div id="fc-flash"></div>
+<div id="ui-overlay">
+  <div class="status-badge" id="fc-status">接地待機中...</div>
+  <div class="status-badge" id="girdle-status">肩甲帯：独立性チェック</div>
+  <div class="status-badge" id="arm-status">腕：旋回チェック</div>
 </div>
 
+<canvas id="output_canvas"></canvas>
 <video id="input_video" playsinline muted style="display:none;"></video>
+
+<div class="controls">
+  <label for="upload">📹 分析動画を選択
+    <input type="file" id="upload" accept="video/*" style="display:none">
+  </label>
+  <button onclick="videoElement.playbackRate = 0.2">超スロー</button>
+  <button onclick="videoElement.paused ? videoElement.play() : videoElement.pause()">再生/停止</button>
+</div>
 
 <script>
   const videoElement = document.getElementById('input_video');
   const canvasElement = document.getElementById('output_canvas');
   const canvasCtx = canvasElement.getContext('2d');
-  const torsionDisplay = document.getElementById('torsion-value');
+  const flash = document.getElementById('fc-flash');
 
-  // MediaPipe Pose 設定
+  let footContacted = false;
+  let prevAnkleY = 0;
+
   const pose = new Pose({locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/pose/${file}`});
-  pose.setOptions({
-    modelComplexity: 1,
-    smoothLandmarks: true,
-    minDetectionConfidence: 0.5,
-    minTrackingConfidence: 0.5
-  });
+  pose.setOptions({ modelComplexity: 1, smoothLandmarks: true, minDetectionConfidence: 0.6 });
 
-  pose.onResults(onResults);
-
-  function onResults(results) {
+  pose.onResults((results) => {
     if (!results.poseLandmarks) return;
-
-    // キャンバスサイズを動画に合わせる
     canvasElement.width = results.image.width;
     canvasElement.height = results.image.height;
-
-    canvasCtx.save();
-    canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
     canvasCtx.drawImage(results.image, 0, 0, canvasElement.width, canvasElement.height);
 
     const lm = results.poseLandmarks;
-    
-    // 肩(11, 12)と腰(23, 24)
-    const leftSh = lm[11]; const rightSh = lm[12];
-    const leftHip = lm[23]; const rightHip = lm[24];
+    const lSh = lm[11], rSh = lm[12], lHip = lm[23], rHip = lm[24];
+    const lAnkle = lm[27], lKnee = lm[25], lWrist = lm[15], lElbow = lm[13];
 
-    // 角度計算
-    const shAngle = Math.atan2(rightSh.y - leftSh.y, rightSh.x - leftSh.x) * 180 / Math.PI;
-    const hipAngle = Math.atan2(rightHip.y - leftHip.y, rightHip.x - leftHip.x) * 180 / Math.PI;
-    const torsion = Math.abs(shAngle - hipAngle).toFixed(1);
-    
-    torsionDisplay.innerText = torsion;
-
-    // 描画：腕などは細いグレーで（背景化）
-    drawConnectors(canvasCtx, lm, POSE_CONNECTIONS, {color: 'rgba(200, 200, 200, 0.3)', lineWidth: 2});
-
-    // 描画：肩甲帯と骨盤のラインを強調（ここがメイン）
-    // 肩ライン
-    canvasCtx.beginPath();
-    canvasCtx.moveTo(leftSh.x * canvasElement.width, leftSh.y * canvasElement.height);
-    canvasCtx.lineTo(rightSh.x * canvasElement.width, rightSh.y * canvasElement.height);
-    canvasCtx.strokeStyle = '#00ffcc'; canvasCtx.lineWidth = 8; canvasCtx.stroke();
-
-    // 腰ライン
-    canvasCtx.beginPath();
-    canvasCtx.moveTo(leftHip.x * canvasElement.width, leftHip.y * canvasElement.height);
-    canvasCtx.lineTo(rightHip.x * canvasElement.width, rightHip.y * canvasElement.height);
-    canvasCtx.strokeStyle = '#ff3366'; canvasCtx.lineWidth = 8; canvasCtx.stroke();
-
-    canvasCtx.restore();
-  }
-
-  // 動画アップロード処理
-  document.getElementById('upload').addEventListener('change', function(e) {
-    const file = e.target.files[0];
-    if (!file) return;
-    videoElement.src = URL.createObjectURL(file);
-    videoElement.play();
-    
-    async function process() {
-      if (!videoElement.paused && !videoElement.ended) {
-        await pose.send({image: videoElement});
-      }
-      requestAnimationFrame(process);
+    // 1. フットコンタクト(FC)検知ロジック（簡易版：足首が止まった瞬間）
+    if (!footContacted && lAnkle.y > 0.8 && Math.abs(lAnkle.y - prevAnkleY) < 0.001) {
+      footContacted = true;
+      flash.style.opacity = 0.5; setTimeout(() => flash.style.opacity = 0, 200);
+      document.getElementById('fc-status').innerHTML = "⚽ 接地！(FOOT CONTACT)";
+      document.getElementById('fc-status').style.borderLeftColor = "#ff3366";
     }
-    process();
+    prevAnkleY = lAnkle.y;
+
+    // 2. 胸郭 vs 肩甲帯 の独立性（捻転差）
+    const torsoAngle = Math.atan2(lHip.y - lSh.y, lHip.x - lSh.x);
+    const shoulderAngle = Math.atan2(rSh.y - lSh.y, rSh.x - lSh.x);
+    const separation = Math.abs(torsoAngle - shoulderAngle);
+    
+    // 肩甲帯のライン描画
+    canvasCtx.beginPath();
+    canvasCtx.moveTo(lSh.x * canvasElement.width, lSh.y * canvasElement.height);
+    canvasCtx.lineTo(rSh.x * canvasElement.width, rSh.y * canvasElement.height);
+    // 独立していれば青、一緒に回れば赤
+    const girdleColor = separation > 1.4 ? "#00ffff" : "#ff4444"; 
+    canvasCtx.strokeStyle = girdleColor;
+    canvasCtx.lineWidth = 10;
+    canvasCtx.stroke();
+    document.getElementById('girdle-status').style.color = girdleColor;
+    document.getElementById('girdle-status').innerText = separation > 1.4 ? "肩甲帯：独立（タメ◎）" : "肩甲帯：連動（手打ち注意）";
+
+    // 3. 腕の外旋・内旋（肘の角度と位置関係）
+    const isExternal = lWrist.x < lElbow.x; // 簡易判定：手首が肘より後ろにあれば外旋（しなり）
+    const armColor = isExternal ? "#ffff00" : "#ff00ff";
+    drawConnectors(canvasCtx, [lSh, lElbow, lWrist], [[0,1],[1,2]], {color: armColor, lineWidth: 6});
+    document.getElementById('arm-status').innerText = isExternal ? "腕：外旋（しなり中）" : "腕：内旋（リリース）";
+    document.getElementById('arm-status').style.color = armColor;
+
+    // 骨格全体を薄く描画
+    drawConnectors(canvasCtx, lm, POSE_CONNECTIONS, {color: 'rgba(255,255,255,0.2)', lineWidth: 1});
   });
 
-  function togglePlay() {
-    videoElement.paused ? videoElement.play() : videoElement.pause();
-  }
-
-  function setSpeed(speed) {
-    videoElement.playbackRate = speed;
-  }
+  document.getElementById('upload').addEventListener('change', (e) => {
+    footContacted = false;
+    videoElement.src = URL.createObjectURL(e.target.files[0]);
+    videoElement.play();
+    const process = async () => {
+      if (!videoElement.paused) { await pose.send({image: videoElement}); }
+      requestAnimationFrame(process);
+    };
+    process();
+  });
 </script>
-
 </body>
 </html>
