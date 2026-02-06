@@ -3,54 +3,64 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-  <title>Kinetic Pro Precision</title>
+  <title>Kinetic Pro - Legacy Restore</title>
   <script src="https://cdn.jsdelivr.net/npm/@mediapipe/pose/pose.js"></script>
   <style>
     html, body { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; background: #000; color: #fff; font-family: sans-serif; }
     #layout { display: flex; flex-direction: column; width: 100vw; height: 100vh; }
-    .header { height: 60px; background: #1a1a1a; display: flex; gap: 8px; padding: 0 10px; align-items: center; flex-shrink: 0; }
-    .top-btn { flex: 1; height: 40px; background: #333; color: #fff; border: 1px solid #555; border-radius: 6px; font-size: 13px; display: flex; align-items: center; justify-content: center; }
-    .main-view { flex: 1; position: relative; background: #000; display: flex; justify-content: center; align-items: center; overflow: hidden; }
+    .header { height: 70px; background: #1a1a1a; display: flex; gap: 10px; padding: 0 15px; align-items: center; border-bottom: 1px solid #333; flex-shrink: 0; }
+    .top-btn { flex: 1; height: 45px; background: #333; color: #fff; border: 1px solid #555; border-radius: 8px; font-weight: bold; font-size: 14px; display: flex; align-items: center; justify-content: center; }
+    .main-view { flex: 1; position: relative; min-height: 0; display: flex; justify-content: center; align-items: center; }
     canvas { max-width: 100%; max-height: 100%; object-fit: contain; }
-    .deck { height: 280px; background: #111; padding: 15px 20px; box-sizing: border-box; flex-shrink: 0; }
     
-    /* スライダーを巨大化・高感度化 */
-    .time-row { display: flex; justify-content: space-between; color: #00ffcc; font-family: monospace; font-size: 20px; margin-bottom: 10px; }
-    input[type="range"] { width: 100%; height: 60px; accent-color: #00ffcc; margin: 10px 0; }
+    /* UI/UXを以前のスタイルに完全復元 */
+    .deck { height: 360px; background: #111; border-top: 2px solid #444; padding: 15px 20px 100px 20px; box-sizing: border-box; flex-shrink: 0; }
+    .slider-row { display: flex; align-items: center; gap: 15px; margin-bottom: 15px; }
+    .play-trigger { width: 70px; height: 70px; border-radius: 50%; background: #00ffcc; color: #000; border: none; font-size: 32px; flex-shrink: 0; }
+    .seek-box { flex: 1; }
+    .time-txt { color: #00ffcc; font-family: monospace; font-size: 18px; font-weight: bold; margin-bottom: 5px; }
+    input[type="range"] { width: 100%; height: 45px; accent-color: #00ffcc; cursor: pointer; }
+    
+    .btn-row { display: flex; gap: 8px; margin-bottom: 8px; }
+    .f-btn { flex: 1; height: 50px; background: #2a2a2a; color: #fff; border: 1px solid #555; border-radius: 10px; font-weight: bold; font-size: 14px; }
+    .step-btn { background: #444; color: #00ffcc; flex: 0.5; }
 
-    .btn-row { display: flex; gap: 10px; height: 70px; }
-    .f-btn { flex: 1; background: #2a2a2a; color: #fff; border: 1px solid #555; border-radius: 12px; font-weight: bold; font-size: 16px; -webkit-tap-highlight-color: transparent; }
-    .f-btn:active { background: #444; }
-    .play-btn { flex: 0.6; background: #00ffcc; color: #000; border: none; font-size: 24px; }
-    
-    .tags { position: absolute; top: 10px; left: 10px; pointer-events: none; }
-    .badge { background: rgba(0,0,0,0.7); padding: 4px 8px; border-radius: 4px; font-size: 12px; margin-bottom: 4px; border-left: 4px solid #00ffcc; }
+    .tags { position: absolute; top: 15px; left: 15px; pointer-events: none; }
+    .badge { background: rgba(0,0,0,0.8); padding: 5px 10px; border-radius: 4px; font-size: 12px; margin-bottom: 4px; border-left: 4px solid #00ffcc; min-width: 100px; }
+    .b-leg { border-left-color: #00ffcc; }
     .b-arm { border-left-color: #ff3366; }
   </style>
 </head>
 <body>
 <div id="layout">
   <div class="header">
-    <label class="top-btn">🎥 動画を選択<input type="file" id="up" accept="video/*" style="display:none"></label>
-    <select id="md" class="top-btn"><option value="pitch">投球</option><option value="bat">打撃</option></select>
+    <label class="top-btn">📹 動画選択<input type="file" id="up" accept="video/*" style="display:none"></label>
+    <select id="md" class="top-btn"><option value="pitch">投球モード</option><option value="bat">打撃モード</option></select>
     <select id="vw" class="top-btn"><option value="both">実写＋骨格</option><option value="stick">骨格のみ</option></select>
   </div>
   <div class="main-view">
     <canvas id="cv"></canvas>
     <div class="tags">
       <div id="r-txt" class="badge b-arm">右腕: --</div><div id="l-txt" class="badge b-arm">左腕: --</div>
-      <div id="rk-txt" class="badge">右足: --</div><div id="lk-txt" class="badge">左足: --</div>
+      <div id="rk-txt" class="badge b-leg">右足: --</div><div id="lk-txt" class="badge b-leg">左足: --</div>
     </div>
   </div>
   <div class="deck">
-    <div class="time-row"><span id="cn">0.00</span><span> / </span><span id="tn">0.00</span>s</div>
-    <input type="range" id="sk" value="0" step="0.0001">
-    <div class="btn-row">
-      <button class="f-btn" onclick="jump(-0.033)">◀ 1F戻る</button>
-      <button class="f-btn play-btn" id="pp">▶</button>
-      <button class="f-btn" onclick="jump(0.033)">1F送る ▶</button>
+    <div class="slider-row">
+      <button class="play-trigger" id="pp">▶</button>
+      <div class="seek-box">
+        <div class="time-txt"><span id="cn">0.00</span> / <span id="tn">0.00</span>s</div>
+        <input type="range" id="sk" value="0" step="0.001">
+      </div>
     </div>
-    <div style="text-align:center; color:#888; font-size:12px; margin-top:15px;">※保存はiPadの「画面収録」をご利用ください</div>
+    <div class="btn-row">
+      <button class="f-btn step-btn" onclick="jump(-0.01)">-0.01s</button>
+      <button class="f-btn" onclick="jump(-0.033)">◀ 戻す</button>
+      <button class="f-btn" id="sl" onclick="slow()">SLOW (1x)</button>
+      <button class="f-btn" onclick="jump(0.033)">送る ▶</button>
+      <button class="f-btn step-btn" onclick="jump(0.01)">+0.01s</button>
+    </div>
+    <div style="text-align:center; color:#666; font-size:11px; margin-top:10px;">※保存はiPadの画面収録をご利用ください</div>
   </div>
 </div>
 <video id="vd" playsinline muted style="display:none"></video>
@@ -70,65 +80,68 @@
   }
 
   pose.onResults((r) => {
-    cv.width = vd.videoWidth; cv.height = vd.videoHeight;
+    if (!r.image) return;
+    cv.width = r.image.width; cv.height = r.image.height;
     ctx.clearRect(0, 0, cv.width, cv.height);
     if (document.getElementById('vw').value !== 'stick') ctx.drawImage(r.image, 0, 0, cv.width, cv.height);
+    
     if (r.poseLandmarks) {
       const lm = r.poseLandmarks;
-      const draw = (p1, p2, col) => {
+      const drawLine = (p1, p2, col, w) => {
         ctx.beginPath(); ctx.moveTo(p1.x * cv.width, p1.y * cv.height); ctx.lineTo(p2.x * cv.width, p2.y * cv.height);
-        ctx.strokeStyle = col; ctx.lineWidth = 6; ctx.lineCap = "round"; ctx.stroke();
+        ctx.strokeStyle = col; ctx.lineWidth = w; ctx.lineCap = "round"; ctx.stroke();
       };
+
+      // ①【復元】胸郭ボックス
+      ctx.beginPath();
+      ctx.moveTo(lm[11].x * cv.width, lm[11].y * cv.height);
+      ctx.lineTo(lm[12].x * cv.width, lm[12].y * cv.height);
+      ctx.lineTo(lm[24].x * cv.width, lm[24].y * cv.height);
+      ctx.lineTo(lm[23].x * cv.width, lm[23].y * cv.height);
+      ctx.closePath();
+      ctx.fillStyle = "rgba(255, 255, 255, 0.2)"; ctx.fill();
+      ctx.strokeStyle = "#ffffff"; ctx.lineWidth = 2; ctx.stroke();
+
+      // ②【復元】頭の方向ライン
+      const headTop = { x: (lm[7].x + lm[8].x) / 2, y: (lm[7].y + lm[8].y) / 2 };
+      const nose = lm[0];
+      drawLine(headTop, nose, "#ffffff", 4);
+
       const isP = document.getElementById('md').value === 'pitch';
-      
+
+      // 腕の判定
       const rA = isP ? (lm[16].x < lm[14].x + 0.05) : (lm[16].y > lm[14].y);
       const lA = isP ? (lm[15].x > lm[13].x - 0.05) : (lm[15].y > lm[13].y);
-      draw(lm[12], lm[14], rA ? "#00e5ff" : "#ff3366"); draw(lm[14], lm[16], rA ? "#00e5ff" : "#ff3366");
-      draw(lm[11], lm[13], lA ? "#00e5ff" : "#ff3366"); draw(lm[13], lm[15], lA ? "#00e5ff" : "#ff3366");
-      document.getElementById('r-txt').innerText = `右腕: ${rA ? '伸張' : '反射'}`;
-      document.getElementById('l-txt').innerText = `左腕: ${lA ? '伸張' : '反射'}`;
+      const armColR = rA ? "#00e5ff" : "#ff3366";
+      const armColL = lA ? "#00e5ff" : "#ff3366";
+      drawLine(lm[12], lm[14], armColR, 10); drawLine(lm[14], lm[16], armColR, 6);
+      drawLine(lm[11], lm[13], armColL, 10); drawLine(lm[13], lm[15], armColL, 6);
+      document.getElementById('r-txt').innerText = `右腕: ${rA ? 'タメ(伸張)' : '解放(反射)'}`;
+      document.getElementById('l-txt').innerText = `左腕: ${lA ? 'タメ(伸張)' : '解放(反射)'}`;
 
+      // 足の判定（追加分）
       const rK = getAngle(lm[24], lm[26], lm[28]), lK = getAngle(lm[23], lm[25], lm[27]);
       const rLE = rK < 160, lLE = lK < 160;
-      draw(lm[24], lm[26], rLE ? "#00ffcc" : "#ff3366"); draw(lm[26], lm[28], rLE ? "#00ffcc" : "#ff3366");
-      draw(lm[23], lm[25], lLE ? "#00ffcc" : "#ff3366"); draw(lm[25], lm[27], lLE ? "#00ffcc" : "#ff3366");
-      document.getElementById('rk-txt').innerText = `右足: ${rLE ? '伸張' : '反射'}`;
-      document.getElementById('lk-txt').innerText = `左足: ${lLE ? '伸張' : '反射'}`;
+      drawLine(lm[24], lm[26], rLE ? "#00ffcc" : "#ff3366", 10); drawLine(lm[26], lm[28], rLE ? "#00ffcc" : "#ff3366", 10);
+      drawLine(lm[23], lm[25], lLE ? "#00ffcc" : "#ff3366", 10); drawLine(lm[25], lm[27], lLE ? "#00ffcc" : "#ff3366", 10);
+      document.getElementById('rk-txt').innerText = `右足: ${rLE ? 'タメ(伸張)' : '解放(反射)'}`;
+      document.getElementById('lk-txt').innerText = `左足: ${lLE ? 'タメ(伸張)' : '解放(反射)'}`;
     }
   });
 
-  async function render() {
-    if (!vd.paused || seeking) {
-      await pose.send({image: vd});
-      if (!seeking) {
-        sk.value = vd.currentTime;
-        document.getElementById('cn').innerText = vd.currentTime.toFixed(2);
-      }
-    }
-    requestAnimationFrame(render);
-  }
-
-  // スライダー精度重視の設定
-  sk.addEventListener('input', () => {
-    seeking = true;
-    vd.currentTime = sk.value;
-    document.getElementById('cn').innerText = parseFloat(sk.value).toFixed(2);
-  });
-  sk.addEventListener('change', () => { seeking = false; });
-
+  async function stream() { if (!vd.paused || seeking) { await pose.send({image: vd}); if (!seeking) { sk.value = vd.currentTime; document.getElementById('cn').innerText = vd.currentTime.toFixed(2); } } requestAnimationFrame(stream); }
+  sk.oninput = () => { seeking = true; vd.currentTime = sk.value; document.getElementById('cn').innerText = parseFloat(sk.value).toFixed(2); };
+  sk.onchange = () => { seeking = false; };
   pp.onclick = () => { if (vd.paused) { vd.play(); pp.innerText = "‖"; } else { vd.pause(); pp.innerText = "▶"; } };
-  function jump(d) { seeking = true; vd.currentTime += d; setTimeout(()=>seeking=false, 100); }
-
+  function jump(d) { vd.currentTime += d; seeking = true; setTimeout(() => { seeking = false; }, 50); }
+  function slow() {
+    const rates = [1.0, 0.25, 0.1];
+    vd.playbackRate = rates[(rates.indexOf(vd.playbackRate) + 1) % rates.length];
+    document.getElementById('sl').innerText = `SLOW (${vd.playbackRate}x)`;
+  }
   document.getElementById('up').onchange = (e) => {
     const file = e.target.files[0];
-    if (file) {
-      vd.src = URL.createObjectURL(file);
-      vd.onloadedmetadata = () => {
-        sk.max = vd.duration;
-        document.getElementById('tn').innerText = vd.duration.toFixed(2);
-        render();
-      };
-    }
+    if (file) { vd.src = URL.createObjectURL(file); vd.onloadedmetadata = () => { sk.max = vd.duration; document.getElementById('tn').innerText = vd.duration.toFixed(2); vd.play(); pp.innerText = "‖"; stream(); }; }
   };
 </script>
 </body>
