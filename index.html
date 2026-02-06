@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <title>Kinetic Chain - Timing Pro</title>
+  <title>Kinetic Chain - Full Detection</title>
   <script src="https://cdn.jsdelivr.net/npm/@mediapipe/pose/pose.js"></script>
   <style>
     html, body { margin: 0; padding: 0; width: 100%; height: 100dvh; overflow: hidden; background: #000; color: #fff; font-family: sans-serif; }
@@ -14,13 +14,10 @@
     .slider-row { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
     input[type="range"] { flex: 1; height: 30px; cursor: pointer; }
     .btn-row { display: flex; justify-content: center; gap: 5px; flex-wrap: wrap; }
-    button, label, select { background: #333; color: white; border: 1px solid #555; padding: 8px 12px; border-radius: 4px; font-size: 11px; font-weight: bold; }
-    
+    button, label { background: #333; color: white; border: 1px solid #555; padding: 8px 12px; border-radius: 4px; font-size: 11px; font-weight: bold; }
     .data-overlay { position: absolute; top: 10px; left: 10px; pointer-events: none; z-index: 10; width: 220px; }
-    .badge { background: rgba(0,0,0,0.8); padding: 5px 8px; margin-bottom: 3px; border-left: 4px solid #00ffcc; font-size: 11px; transition: 0.1s; }
-    .active-part { border-left-color: #ff00ff; background: rgba(255,0,255,0.2); transform: translateX(5px); }
-    #rec-btn { background: #d32f2f; border: none; }
-    #rec-btn.active { background: #fff; color: #d32f2f; }
+    .badge { background: rgba(0,0,0,0.8); padding: 5px 8px; margin-bottom: 3px; border-left: 4px solid #00ffcc; font-size: 11px; }
+    .active-part { border-left-color: #ff00ff; background: rgba(255,0,255,0.2); }
   </style>
 </head>
 <body>
@@ -29,11 +26,8 @@
   <div class="display-area">
     <canvas id="output_canvas"></canvas>
     <div class="data-overlay">
-      <div id="phase-badge" class="badge" style="font-weight:bold; color:#ffcc00;">解析待機中</div>
-      <div id="hip-badge" class="badge">1. 骨盤（下半身）: --</div>
-      <div id="box-badge" class="badge">2. 胸郭（ボックス）: --</div>
-      <div id="arm-badge" class="badge">3. 肩甲帯・腕: --</div>
-      <div id="result-badge" class="badge" style="border-left-color:#fff;">連動順序: 解析中</div>
+      <div id="phase-badge" class="badge" style="color:#ffcc00;">解析中...</div>
+      <div id="seq-badge" class="badge">連動順序: --</div>
     </div>
   </div>
 
@@ -41,13 +35,13 @@
     <div class="slider-row">
       <span id="time-display" style="font-size:12px; min-width:40px;">0.0s</span>
       <input type="range" id="seek-bar" value="0" step="0.001">
-      <button id="rec-btn" onclick="toggleRecording()">REC</button>
     </div>
     <div class="btn-row">
-      <label for="upload">📹 動画選択<input type="file" id="upload" accept="video/*" style="display:none"></label>
-      <button onclick="togglePlay()">▷/||</button>
+      <label for="upload">📹 動画読込<input type="file" id="upload" accept="video/*" style="display:none"></label>
+      <button onclick="video.paused ? video.play() : video.pause()">▷/||</button>
       <button onclick="video.playbackRate = 0.25">0.25x</button>
-      <button onclick="resetData()">Reset</button>
+      <button onclick="video.playbackRate = 1.0">1.0x</button>
+      <button onclick="sequence = []">Reset Seq</button>
     </div>
   </div>
 </div>
@@ -61,13 +55,12 @@
   const seekBar = document.getElementById('seek-bar');
   const timeDisplay = document.getElementById('time-display');
   
-  let prevPos = { hip: null, sh: null, wr: null };
   let sequence = [];
-  let isSeeking = false;
-  let mediaRecorder, recordedChunks = [];
+  let prevPos = { hip: null, box: null, hand: null };
 
   const pose = new Pose({locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/pose/${file}`});
-  pose.setOptions({ modelComplexity: 1, smoothLandmarks: true, minDetectionConfidence: 0.5 });
+  // Complexityを2に上げて精度を最大化
+  pose.setOptions({ modelComplexity: 2, smoothLandmarks: true, minDetectionConfidence: 0.3, minTrackingConfidence: 0.3 });
 
   pose.onResults((results) => {
     if (!results.image) return;
@@ -78,98 +71,91 @@
 
     if (results.poseLandmarks) {
       const lm = results.poseLandmarks;
-      const shL = lm[11], shR = lm[12], hipL = lm[23], hipR = lm[24], wrL = lm[15];
-      const midSh = { x: (shL.x + shR.x)/2, y: (shL.y + shR.y)/2 };
-      const midHip = { x: (hipL.x + hipR.x)/2, y: (hipL.y + hipR.y)/2 };
-
-      // --- スピード解析ロジック ---
-      const calcSpeed = (curr, prev) => prev ? Math.sqrt(Math.pow(curr.x - prev.x, 2) + Math.pow(curr.y - prev.y, 2)) / 0.033 : 0;
       
-      const vHip = calcSpeed(midHip, prevPos.hip);
-      const vBox = calcSpeed(midSh, prevPos.sh);
-      const vArm = calcSpeed(wrL, prevPos.wr);
-
-      prevPos = { hip: midHip, sh: midSh, wr: wrL };
-
-      // --- 連動判定 ---
-      let phase = "タメ";
-      const threshold = 0.5; // 移動感度のしきい値
-
-      const badges = {
-        hip: document.getElementById('hip-badge'),
-        box: document.getElementById('box-badge'),
-        arm: document.getElementById('arm-badge')
+      // 共通描画関数
+      const drawLine = (p1, p2, col, w) => {
+        ctx.beginPath();
+        ctx.moveTo(p1.x * canvas.width, p1.y * canvas.height);
+        ctx.lineTo(p2.x * canvas.width, p2.y * canvas.height);
+        ctx.strokeStyle = col; ctx.lineWidth = w; ctx.lineCap = "round"; ctx.stroke();
       };
 
-      Object.values(badges).forEach(b => b.classList.remove('active-part'));
+      // 1. 下半身（両足）の描画
+      const legs = [[23,25,27], [24,26,28]]; // 左足, 右足
+      legs.forEach(pts => {
+        drawLine(lm[pts[0]], lm[pts[1]], "#00e5ff", 8);
+        drawLine(lm[pts[1]], lm[pts[2]], "#00e5ff", 5);
+      });
 
-      if (vArm > vBox && vArm > vHip && vArm > threshold) {
-        phase = "リリース / インパクト";
-        badges.arm.classList.add('active-part');
-        if(!sequence.includes('Arm')) sequence.push('Arm');
-      } else if (vBox > vHip && vBox > threshold) {
-        phase = "胸郭ターン（入れ替え）";
-        badges.box.classList.add('active-part');
-        if(!sequence.includes('Box')) sequence.push('Box');
-      } else if (vHip > threshold) {
-        phase = "ステップ・骨盤始動";
-        badges.hip.classList.add('active-part');
-        if(!sequence.includes('Hip')) sequence.push('Hip');
-      }
-
-      // --- 描画（ボックス） ---
-      const isTrunkExt = shL.x > hipL.x + 0.02;
+      // 2. 胸郭ボックス（4点結び）
       ctx.beginPath();
-      ctx.moveTo(shL.x * canvas.width, shL.y * canvas.height);
-      ctx.lineTo(shR.x * canvas.width, shR.y * canvas.height);
-      ctx.lineTo(hipR.x * canvas.width, hipR.y * canvas.height);
-      ctx.lineTo(hipL.x * canvas.width, hipL.y * canvas.height);
+      ctx.moveTo(lm[11].x * canvas.width, lm[11].y * canvas.height);
+      ctx.lineTo(lm[12].x * canvas.width, lm[12].y * canvas.height);
+      ctx.lineTo(lm[24].x * canvas.width, lm[24].y * canvas.height);
+      ctx.lineTo(lm[23].x * canvas.width, lm[23].y * canvas.height);
       ctx.closePath();
-      ctx.fillStyle = isTrunkExt ? "rgba(0, 229, 255, 0.3)" : "rgba(255, 23, 68, 0.3)";
+      ctx.fillStyle = "rgba(255, 255, 255, 0.2)";
       ctx.fill();
       ctx.strokeStyle = "#fff"; ctx.lineWidth = 2; ctx.stroke();
 
-      // 肩甲帯と腕
-      const drawL = (p1, p2, col, w) => {
-        ctx.beginPath(); ctx.moveTo(p1.x*canvas.width, p1.y*canvas.height);
-        ctx.lineTo(p2.x*canvas.width, p2.y*canvas.height);
-        ctx.strokeStyle = col; ctx.lineWidth = w; ctx.lineCap = "round"; ctx.stroke();
-      };
-      drawL(shL, shR, "#ffffff", 4);
-      drawL(shL, lm[13], "#00ffcc", 8); drawL(lm[13], wrL, "#00ffcc", 5);
+      // 3. 両腕の描画（グラブ側だけでなく投球側も）
+      // 右腕 (12-14-16)
+      drawLine(lm[12], lm[14], "#ff3366", 8);
+      drawLine(lm[14], lm[16], "#ff3366", 5);
+      // 左腕 (11-13-15)
+      drawLine(lm[11], lm[13], "#00ffcc", 8);
+      drawLine(lm[13], lm[15], "#00ffcc", 5);
 
-      // UI更新
-      document.getElementById('phase-badge').innerText = phase;
-      document.getElementById('result-badge').innerText = `連動順序: ${sequence.join(' → ')}`;
-      badges.hip.innerText = `1. 骨盤: ${vHip.toFixed(2)}`;
-      badges.box.innerText = `2. 胸郭: ${vBox.toFixed(2)}`;
-      badges.arm.innerText = `3. 腕: ${vArm.toFixed(2)}`;
+      // 4. 連動解析用の速度計算
+      const midHip = { x: (lm[23].x + lm[24].x)/2, y: (lm[23].y + lm[24].y)/2 };
+      const midBox = { x: (lm[11].x + lm[12].x)/2, y: (lm[11].y + lm[12].y)/2 };
+      const hand = lm[16]; // 投球/打撃の手（右利き想定。左なら15）
+
+      const getSpd = (curr, pKey) => {
+        if(!prevPos[pKey]) return 0;
+        const d = Math.sqrt(Math.pow(curr.x-prevPos[pKey].x,2) + Math.pow(curr.y-prevPos[pKey].y,2));
+        return d / 0.033;
+      };
+
+      const sHip = getSpd(midHip, 'hip');
+      const sBox = getSpd(midBox, 'box');
+      const sHand = getSpd(hand, 'hand');
+      prevPos = { hip: midHip, box: midBox, hand: hand };
+
+      // シーケンス判定
+      const thr = 0.4;
+      if (sHand > sBox && sHand > sHip && sHand > thr) {
+        if(!sequence.includes('腕')) sequence.push('腕');
+        document.getElementById('phase-badge').innerText = "PHASE: リリース/インパクト";
+      } else if (sBox > sHip && sBox > thr) {
+        if(!sequence.includes('胸郭')) sequence.push('胸郭');
+        document.getElementById('phase-badge').innerText = "PHASE: 体幹回転";
+      } else if (sHip > thr) {
+        if(!sequence.includes('下半身')) sequence.push('下半身');
+        document.getElementById('phase-badge').innerText = "PHASE: 下半身始動";
+      }
+
+      document.getElementById('seq-badge').innerText = `連動順序: ${sequence.join(' → ')}`;
     }
   });
 
-  // スライダー・基本機能
-  seekBar.oninput = () => { isSeeking = true; video.pause(); video.currentTime = seekBar.value; timeDisplay.innerText = video.currentTime.toFixed(2); };
-  seekBar.onchange = async () => { await pose.send({image: video}); isSeeking = false; };
-  function togglePlay() { video.paused ? video.play() : video.pause(); }
-  function resetData() { sequence = []; }
-  function toggleRecording() {
-    if (mediaRecorder && mediaRecorder.state === "recording") { mediaRecorder.stop(); document.getElementById('rec-btn').classList.remove('active'); }
-    else {
-      recordedChunks = []; const stream = canvas.captureStream(30);
-      mediaRecorder = new MediaRecorder(stream, { mimeType: 'video/webm' });
-      mediaRecorder.ondataavailable = e => recordedChunks.push(e.data);
-      mediaRecorder.onstop = () => {
-        const blob = new Blob(recordedChunks, { type: 'video/webm' });
-        const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'analysis.webm'; a.click();
-      };
-      mediaRecorder.start(); document.getElementById('rec-btn').classList.add('active');
-    }
-  }
+  // UI・動画制御
+  seekBar.oninput = () => { video.pause(); video.currentTime = seekBar.value; };
   document.getElementById('upload').onchange = (e) => {
     const file = e.target.files[0];
-    if (file) { video.src = URL.createObjectURL(file); video.onloadedmetadata = () => { seekBar.max = video.duration; video.play(); requestAnimationFrame(renderLoop); }; }
+    if (file) {
+      video.src = URL.createObjectURL(file);
+      video.onloadedmetadata = () => { seekBar.max = video.duration; video.play(); requestAnimationFrame(renderLoop); };
+    }
   };
-  async function renderLoop() { if (!video.paused) { await pose.send({image: video}); seekBar.value = video.currentTime; timeDisplay.innerText = video.currentTime.toFixed(2); } requestAnimationFrame(renderLoop); }
+  async function renderLoop() {
+    if (!video.paused) {
+      await pose.send({image: video});
+      seekBar.value = video.currentTime;
+      timeDisplay.innerText = video.currentTime.toFixed(1) + "s";
+    }
+    requestAnimationFrame(renderLoop);
+  }
 </script>
 </body>
 </html>
