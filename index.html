@@ -3,54 +3,63 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <title>Kinetic Chain Pro - Analysis Report</title>
+  <title>Kinetic Chain - Multi Mode Analyzer</title>
   <script src="https://cdn.jsdelivr.net/npm/@mediapipe/pose/pose.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js"></script>
   <style>
-    html, body { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; background: #000; color: #fff; font-family: sans-serif; }
+    html, body { margin: 0; padding: 0; width: 100%; height: 100vh; overflow: hidden; background: #000; color: #fff; font-family: sans-serif; }
     #app-container { display: flex; flex-direction: column; width: 100%; height: 100vh; }
-    .display-area { flex: 1; position: relative; background: #050505; display: flex; justify-content: center; align-items: center; overflow: hidden; }
-    canvas { max-width: 100%; max-height: 100%; object-fit: contain; }
-    #fc-flash { position: absolute; top:0; left:0; width:100%; height:100%; pointer-events:none; opacity:0; background: white; z-index: 5; }
-    .ui-panel { background: #151515; padding: 10px; border-top: 1px solid #333; display: flex; flex-direction: column; gap: 8px; }
-    .slider-container { display: flex; align-items: center; gap: 10px; }
+    .display-area { flex: 1; position: relative; background: #000; display: flex; justify-content: center; align-items: center; overflow: hidden; min-height: 0; }
+    canvas { width: 100%; height: 100%; object-fit: contain; }
+    .ui-panel { height: 140px; background: #151515; border-top: 1px solid #444; display: flex; flex-direction: column; justify-content: center; padding: 5px 10px; box-sizing: border-box; flex-shrink: 0; }
+    .slider-container { display: flex; align-items: center; gap: 8px; margin-bottom: 5px; }
     input[type="range"] { flex: 1; height: 30px; }
-    .controls { display: flex; justify-content: center; gap: 6px; flex-wrap: wrap; }
-    button, label, select { background: #333; color: white; border: 1px solid #444; padding: 8px 12px; border-radius: 6px; font-size: 11px; cursor: pointer; }
-    .data-overlay { position: absolute; top: 10px; left: 10px; pointer-events: none; z-index: 10; }
-    .badge { background: rgba(0,0,0,0.8); padding: 4px 8px; margin-bottom: 4px; border-left: 3px solid #00ffcc; font-size: 10px; }
-    #report-btn { background: #0088ff; border: none; font-weight: bold; }
+    .controls { display: flex; justify-content: center; gap: 5px; flex-wrap: wrap; }
+    button, label, select { background: #333; color: white; border: 1px solid #555; padding: 6px 10px; border-radius: 4px; font-size: 11px; cursor: pointer; }
+    #report-btn { background: #007bff; border: none; font-weight: bold; }
+    .data-overlay { position: absolute; top: 10px; left: 10px; pointer-events: none; }
+    .badge { background: rgba(0,0,0,0.8); padding: 4px 8px; margin-bottom: 3px; border-left: 3px solid #00ffcc; font-size: 10px; }
+    #mode-indicator { border-left-color: #ffcc00; font-weight: bold; }
+    #fc-flash { position: absolute; top:0; left:0; width:100%; height:100%; pointer-events:none; opacity:0; background: white; z-index: 5; }
   </style>
 </head>
 <body>
 
 <div id="app-container">
-  <div class="display-area" id="capture-area">
+  <div class="display-area">
     <div id="fc-flash"></div>
     <canvas id="output_canvas"></canvas>
     <div class="data-overlay">
+      <div id="mode-indicator" class="badge">MODE: 投球解析</div>
       <div id="fc-badge" class="badge">接地：待機中</div>
       <div id="torsion-badge" class="badge">最大捻転差: --°</div>
-      <div id="hip-speed-badge" class="badge">最大並進速度: -- unit/s</div>
-      <div id="velo-badge" class="badge" style="border-left-color:#ffcc00; font-size:12px;">予測球速: -- km/h</div>
+      <div id="hip-speed-badge" class="badge">最大移動速度: --</div>
+      <div id="prediction-badge" class="badge" style="border-left-color:#ffcc00; font-size:12px;">予測球速: -- km/h</div>
     </div>
   </div>
 
   <div class="ui-panel">
     <div class="slider-container">
-      <span id="current-time" style="font-size:12px;">0:00</span>
+      <span id="current-time" style="font-size:10px; min-width:30px;">0:00</span>
       <input type="range" id="seek-bar" value="0" step="0.001">
-      <button id="report-btn" onclick="exportReport()">📊 レポート保存</button>
+      <button id="report-btn" onclick="exportReport()">レポート保存</button>
     </div>
     <div class="controls">
       <label for="upload">📹 選択<input type="file" id="upload" accept="video/*" style="display:none"></label>
+      
+      <select id="analysis-mode" onchange="updateModeUI()">
+        <option value="pitching">投球解析モード</option>
+        <option value="batting">打撃解析モード</option>
+      </select>
+
       <select id="view-mode">
         <option value="both">動画+骨格</option>
         <option value="stick">骨格のみ</option>
       </select>
+      
       <button onclick="togglePlay()">再生/停止</button>
-      <button onclick="video.playbackRate = 0.25">スロー</button>
-      <button onclick="resetData()">データリセット</button>
+      <button onclick="video.playbackRate = 0.25">0.25x</button>
+      <button onclick="resetData()">リセット</button>
     </div>
   </div>
 </div>
@@ -62,6 +71,7 @@
   const canvas = document.getElementById('output_canvas');
   const ctx = canvas.getContext('2d');
   const seekBar = document.getElementById('seek-bar');
+  const analysisMode = document.getElementById('analysis-mode');
   const viewMode = document.getElementById('view-mode');
   const flash = document.getElementById('fc-flash');
 
@@ -71,11 +81,24 @@
   const pose = new Pose({locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/pose/${file}`});
   pose.setOptions({ modelComplexity: 1, smoothLandmarks: true, minDetectionConfidence: 0.5 });
 
-  function getRotColor(p1, p2, p3, isArm) { return (isArm ? p3.x < p2.x : p3.x > p2.x) ? "#00ffff" : "#ff3366"; }
+  function updateModeUI() {
+    const isPitch = analysisMode.value === 'pitching';
+    document.getElementById('mode-indicator').innerText = `MODE: ${isPitch ? '投球解析' : '打撃解析'}`;
+    document.getElementById('prediction-badge').innerText = isPitch ? '予測球速: -- km/h' : '予測スイング速度: -- km/h';
+    resetData();
+  }
+
+  function getRotColor(p1, p2, p3, isArm) {
+    // 腕や足の向きから内外旋を簡易判定
+    const isExternal = isArm ? p3.x < p2.x : p3.x > p2.x; 
+    return isExternal ? "#00ffff" : "#ff3366";
+  }
 
   pose.onResults((results) => {
-    canvas.width = results.image.width; canvas.height = results.image.height;
+    canvas.width = results.image.width; 
+    canvas.height = results.image.height;
     ctx.clearRect(0, 0, canvas.width, canvas.height);
+    
     if (viewMode.value === 'stick') { ctx.fillStyle="#000"; ctx.fillRect(0,0,canvas.width,canvas.height); }
     else { ctx.drawImage(results.image, 0, 0, canvas.width, canvas.height); }
 
@@ -84,7 +107,7 @@
       const lSh = lm[11], rSh = lm[12], lHip = lm[23], rHip = lm[24];
       const lEl = lm[13], lWr = lm[15], lAk = lm[27], rAk = lm[28], lKn = lm[25], rKn = lm[26];
 
-      // 並進速度計測 (腰の中央移動)
+      // 並進移動（重心移動速度）
       const currentHipX = (lHip.x + rHip.x) / 2;
       if (prevHipX !== null && !video.paused) {
         const speed = Math.abs(currentHipX - prevHipX) / 0.033;
@@ -92,7 +115,7 @@
       }
       prevHipX = currentHipX;
 
-      // 捻転差
+      // 捻転差（肩と腰のライン角度）
       const sep = Math.abs(Math.atan2(lHip.y-lSh.y, lHip.x-lSh.x) - Math.atan2(rSh.y-lSh.y, rSh.x-lSh.x));
       const sepDeg = sep * 50; 
       if (sepDeg > maxSep) maxSep = sepDeg;
@@ -100,45 +123,54 @@
       // 接地
       if (!footContacted && lAk.y > 0.8 && Math.abs(lAk.y - prevAnkleY) < 0.0005) {
         footContacted = true; flash.style.opacity = 0.5; setTimeout(()=>flash.style.opacity=0, 150);
-        document.getElementById('fc-badge').innerText = "✅ 接地確認";
+        document.getElementById('fc-badge').innerText = analysisMode.value === 'pitching' ? "✅ 接地確認" : "✅ 踏み込み確認";
       }
       prevAnkleY = lAk.y;
 
-      // 描画
+      // スティック描画
       drawConnectors(ctx, [lSh, lEl, lWr], [[0,1],[1,2]], {color: getRotColor(lSh,lEl,lWr,true), lineWidth: 10});
       drawConnectors(ctx, [lHip, lKn, lAk], [[0,1],[1,2]], {color: getRotColor(lHip,lKn,lAk,false), lineWidth: 10});
       drawConnectors(ctx, [rHip, rKn, rAk], [[0,1],[1,2]], {color: getRotColor(rHip,rKn,rAk,false), lineWidth: 10});
+      
+      // 肩甲帯ライン
       ctx.beginPath(); ctx.moveTo(lSh.x*canvas.width, lSh.y*canvas.height); ctx.lineTo(rSh.x*canvas.width, rSh.y*canvas.height);
       ctx.strokeStyle = (sep > 1.48) ? "#00ffff" : "#ff3366"; ctx.lineWidth = 14; ctx.stroke();
+      
       drawConnectors(ctx, lm, POSE_CONNECTIONS, {color: 'rgba(255,255,255,0.1)', lineWidth: 1});
 
-      // バッジ更新
+      // 数値更新
       document.getElementById('torsion-badge').innerText = `最大捻転差: ${maxSep.toFixed(1)}°`;
-      document.getElementById('hip-speed-badge').innerText = `最大並進速度: ${(maxHipSpeed*10).toFixed(2)}`;
-      const estVelo = (maxHipSpeed * 350 + maxSep * 0.4 + 80).toFixed(1);
-      document.getElementById('velo-badge').innerText = `予測球速: ${estVelo} km/h`;
+      document.getElementById('hip-speed-badge').innerText = `最大移動速度: ${(maxHipSpeed*10).toFixed(2)}`;
+      
+      const isPitch = analysisMode.value === 'pitching';
+      const score = isPitch ? (maxHipSpeed * 350 + maxSep * 0.4 + 80) : (maxHipSpeed * 280 + maxSep * 0.6 + 70);
+      document.getElementById('prediction-badge').innerText = `予測${isPitch ? '球速' : 'スイング速'}: ${score.toFixed(1)} km/h`;
     }
   });
 
   function exportReport() {
     const link = document.createElement('a');
-    link.download = `Analysis_Report_${new Date().getTime()}.png`;
-    link.href = canvas.toDataURL();
-    link.click();
+    link.download = `Report_${analysisMode.value}_${new Date().getTime()}.png`;
+    link.href = canvas.toDataURL(); link.click();
   }
 
   function togglePlay() { video.paused ? video.play() : video.pause(); }
-  function resetData() { maxSep = 0; maxHipSpeed = 0; footContacted = false; document.getElementById('fc-badge').innerText = "接地：待機中"; }
+  function resetData() { maxSep = 0; maxHipSpeed = 0; footContacted = false; document.getElementById('fc-badge').innerText = "確認：待機中"; }
+  
   document.getElementById('upload').onchange = (e) => {
     video.src = URL.createObjectURL(e.target.files[0]);
     video.onloadedmetadata = () => { seekBar.max = video.duration; requestAnimationFrame(renderLoop); };
   };
+
   async function renderLoop() {
-    if (!video.paused || video.seeking) { await pose.send({image: video}); seekBar.value = video.currentTime; }
+    if (!video.paused || video.seeking) { 
+      await pose.send({image: video}); 
+      seekBar.value = video.currentTime; 
+      document.getElementById('current-time').innerText = (video.currentTime).toFixed(1);
+    }
     requestAnimationFrame(renderLoop);
   }
   seekBar.oninput = () => { video.pause(); video.currentTime = seekBar.value; };
 </script>
 </body>
 </html>
-
