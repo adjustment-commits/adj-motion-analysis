@@ -3,26 +3,26 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <title>Kinetic Chain - Stable Ultimate</title>
-  
+  <title>Kinetic Chain - Pro Edition</title>
   <script src="https://cdn.jsdelivr.net/npm/@mediapipe/pose/pose.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
-
   <style>
-    html, body { margin: 0; padding: 0; width: 100%; height: 100dvh; overflow: hidden; background: #000; color: #fff; font-family: sans-serif; }
+    html, body { margin: 0; padding: 0; width: 100%; height: 100dvh; overflow: hidden; background: #111; color: #fff; font-family: 'Avenir','Helvetica Neue','Arial',sans-serif; }
     #app-container { display: flex; flex-direction: column; width: 100%; height: 100dvh; }
-    .display-area { flex: 1; position: relative; display: flex; justify-content: center; align-items: center; overflow: hidden; min-height: 0; }
-    canvas { max-width: 100%; max-height: 100%; object-fit: contain; z-index: 2; }
-    .ui-panel { background: #151515; border-top: 1px solid #444; padding: 10px; flex-shrink: 0; z-index: 5; }
-    .slider-row { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
-    input[type="range"] { flex: 1; height: 30px; cursor: pointer; }
-    .btn-row { display: flex; justify-content: center; gap: 4px; flex-wrap: wrap; }
-    button, label, select { background: #333; color: white; border: 1px solid #555; padding: 8px 10px; border-radius: 4px; font-size: 11px; cursor: pointer; }
-    .data-overlay { position: absolute; top: 10px; left: 10px; pointer-events: none; z-index: 10; }
-    .badge { background: rgba(0,0,0,0.8); padding: 5px 8px; margin-bottom: 3px; border-left: 4px solid #00ffcc; font-size: 11px; }
-    #rec-btn { background: #d32f2f; border: none; font-weight: bold; }
-    #rec-btn.active { background: #fff; color: #d32f2f; }
+    .display-area { flex: 1; position: relative; background: #000; display: flex; justify-content: center; align-items: center; min-height: 0; }
+    canvas { max-width: 100%; max-height: 100%; object-fit: contain; z-index: 2; border: 1px solid #333; }
+    .ui-panel { background: linear-gradient(180deg, #222, #000); padding: 12px; flex-shrink: 0; border-top: 1px solid #444; }
+    .slider-row { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; }
+    input[type="range"] { flex: 1; height: 32px; accent-color: #00ffcc; }
+    .btn-row { display: flex; justify-content: center; gap: 6px; flex-wrap: wrap; }
+    button, label, select { background: #333; color: #fff; border: 1px solid #555; padding: 10px 14px; border-radius: 6px; font-size: 12px; font-weight: bold; cursor: pointer; transition: 0.2s; }
+    button:active { transform: scale(0.95); background: #555; }
+    .data-overlay { position: absolute; top: 15px; left: 15px; pointer-events: none; z-index: 10; width: 180px; }
+    .badge { background: rgba(0,0,0,0.7); backdrop-filter: blur(4px); padding: 8px 12px; margin-bottom: 6px; border-left: 5px solid #00ffcc; border-radius: 0 8px 8px 0; font-size: 12px; box-shadow: 2px 2px 10px rgba(0,0,0,0.5); }
+    #prediction-badge { border-left-color: #ffcc00; font-size: 14px; color: #ffcc00; }
+    #rec-btn { background: #ff3366; border: none; }
+    #rec-btn.active { background: #fff; color: #ff3366; animation: pulse 1.5s infinite; }
+    @keyframes pulse { 0% { opacity: 1; } 50% { opacity: 0.5; } 100% { opacity: 1; } }
   </style>
 </head>
 <body>
@@ -31,32 +31,32 @@
   <div class="display-area">
     <canvas id="output_canvas"></canvas>
     <div class="data-overlay">
-      <div id="mode-badge" class="badge">準備完了：動画を選択してください</div>
-      <div id="torsion-badge" class="badge">最大捻転差: --°</div>
+      <div id="mode-badge" class="badge">READY</div>
+      <div id="torsion-badge" class="badge">捻転差: --°</div>
       <div id="trunk-badge" class="badge">胴体：待機中</div>
-      <div id="prediction-badge" class="badge" style="border-left-color:#ffcc00;">予測: -- km/h</div>
+      <div id="prediction-badge" class="badge">予測: -- km/h</div>
     </div>
   </div>
 
   <div class="ui-panel">
     <div class="slider-row">
-      <span id="time-display" style="font-size:12px; min-width:40px;">0.0s</span>
+      <span id="time-display" style="font-family:monospace; font-size:14px; min-width:45px;">0.00</span>
       <input type="range" id="seek-bar" value="0" step="0.001">
       <button id="rec-btn" onclick="toggleRecording()">REC</button>
     </div>
     <div class="btn-row">
-      <label for="upload">📹動画<input type="file" id="upload" accept="video/*" style="display:none"></label>
+      <label for="upload">📹 VIDEO<input type="file" id="upload" accept="video/*" style="display:none"></label>
       <select id="analysis-mode" onchange="updateModeUI()">
-        <option value="pitching">投球モード</option>
-        <option value="batting">打撃モード</option>
+        <option value="pitching">投球解析</option>
+        <option value="batting">打撃解析</option>
       </select>
       <select id="view-mode">
-        <option value="both">重畳表示</option>
-        <option value="stick">骨格のみ</option>
+        <option value="both">VIDEO+BONE</option>
+        <option value="stick">BONE ONLY</option>
       </select>
-      <button onclick="togglePlay()">▷/||</button>
+      <button onclick="togglePlay()">PLAY/PAUSE</button>
       <button onclick="video.playbackRate = 0.25">0.25x</button>
-      <button onclick="resetData()">Reset</button>
+      <button onclick="resetData()">RESET</button>
     </div>
   </div>
 </div>
@@ -74,31 +74,30 @@
   let maxSep = 0, maxHipSpeed = 0, prevHipX = null, isSeeking = false;
   let mediaRecorder, recordedChunks = [];
 
-  // MediaPipe Pose の初期化
   const pose = new Pose({locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/pose/${file}`});
-  pose.setOptions({ modelComplexity: 1, smoothLandmarks: true, minDetectionConfidence: 0.5 });
+  pose.setOptions({ modelComplexity: 1, smoothLandmarks: true, minDetectionConfidence: 0.6 });
 
   function updateModeUI() {
-    document.getElementById('mode-badge').innerText = `MODE: ${analysisMode.value === 'pitching' ? '投球' : '打撃'}`;
+    document.getElementById('mode-badge').innerText = analysisMode.value === 'pitching' ? 'PITCHING MODE' : 'BATTING MODE';
     resetData();
   }
 
   pose.onResults((results) => {
-    // 動画の解像度に合わせてキャンバスサイズを調整
-    if (results.image) {
-      canvas.width = results.image.width;
-      canvas.height = results.image.height;
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
+    if (!results.image) return;
+    canvas.width = results.image.width;
+    canvas.height = results.image.height;
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-      if (document.getElementById('view-mode').value === 'stick') {
-        ctx.fillStyle = "#000"; ctx.fillRect(0, 0, canvas.width, canvas.height);
-      } else {
-        ctx.drawImage(results.image, 0, 0, canvas.width, canvas.height);
-      }
+    if (document.getElementById('view-mode').value === 'stick') {
+      ctx.fillStyle = "#000"; ctx.fillRect(0, 0, canvas.width, canvas.height);
+    } else {
+      ctx.drawImage(results.image, 0, 0, canvas.width, canvas.height);
     }
 
     if (results.poseLandmarks) {
       const lm = results.poseLandmarks;
+      
+      // 指標計算
       const midSh = { x: (lm[11].x + lm[12].x) / 2, y: (lm[11].y + lm[12].y) / 2 };
       const midHip = { x: (lm[23].x + lm[24].x) / 2, y: (lm[23].y + lm[24].y) / 2 };
 
@@ -107,43 +106,55 @@
         if (s > maxHipSpeed) maxHipSpeed = s;
       }
       prevHipX = midHip.x;
-      const sep = Math.abs(Math.atan2(lm[23].y-lm[11].y, lm[23].x-lm[11].x) - Math.atan2(lm[12].y-lm[11].y, lm[12].x-lm[11].x));
-      if (sep * 50 > maxSep) maxSep = sep * 50;
 
-      const drawSeg = (p1, p2, col, w) => {
+      const sep = Math.abs(Math.atan2(lm[23].y-lm[11].y, lm[23].x-lm[11].x) - Math.atan2(lm[12].y-lm[11].y, lm[12].x-lm[11].x));
+      const curSepDeg = sep * 57.3; // Rad to Deg
+      if (curSepDeg > maxSep) maxSep = curSepDeg;
+
+      // 描画
+      const drawL = (p1, p2, col, w) => {
         ctx.beginPath(); ctx.moveTo(p1.x*canvas.width, p1.y*canvas.height);
         ctx.lineTo(p2.x*canvas.width, p2.y*canvas.height);
         ctx.strokeStyle = col; ctx.lineWidth = w; ctx.lineCap = "round"; ctx.stroke();
       };
 
-      const checkRot = (b, m, e) => e.x < m.x; 
-      const isTrunkExt = lm[11].x > lm[23].x + 0.02;
+      // 改良版・内外旋ロジック（奥行きと相対位置を重視）
+      const isExt = (b, m, e) => (e.x < m.x + 0.01); 
+      const isTrunkExt = lm[11].x > lm[23].x + 0.01;
 
-      // 描画実行
-      drawSeg(midSh, midHip, isTrunkExt ? "#00ffff" : "#ff3366", 15);
-      drawSeg(lm[11], lm[12], isTrunkExt ? "#00ffff" : "#ff3366", 12);
-      drawSeg(lm[11], lm[13], checkRot(lm[11], lm[13], lm[15]) ? "#00ffff" : "#ff3366", 10);
-      drawSeg(lm[13], lm[15], checkRot(lm[11], lm[13], lm[15]) ? "#00ffff" : "#ff3366", 7);
-      drawSeg(lm[23], lm[25], lm[25].x > lm[23].x ? "#00ffff":"#ff3366", 12);
-      drawSeg(lm[25], lm[27], lm[27].x > lm[25].x ? "#00ffff":"#ff3366", 9);
-      drawSeg(lm[24], lm[26], lm[26].x < lm[24].x ? "#00ffff":"#ff3366", 12);
-      drawSeg(lm[26], lm[28], lm[28].x < lm[26].x ? "#00ffff":"#ff3366", 9);
+      // セグメント描画（発色を鮮やかに）
+      const BLUE = "#00e5ff"; const RED = "#ff1744"; const YELLOW = "#ffff00";
 
+      drawL(midSh, midHip, isTrunkExt ? BLUE : RED, 18);
+      drawL(lm[11], lm[12], isTrunkExt ? BLUE : RED, 12);
+      
+      // 投球腕/スイング腕
+      const armCol = isExt(lm[11], lm[13], lm[15]) ? BLUE : RED;
+      drawL(lm[11], lm[13], armCol, 12);
+      drawL(lm[13], lm[15], armCol, 8);
+
+      // 足
+      drawL(lm[23], lm[25], lm[25].x > lm[23].x ? BLUE : RED, 14);
+      drawL(lm[25], lm[27], lm[27].x > lm[25].x ? BLUE : RED, 10);
+      drawL(lm[24], lm[26], lm[26].x < lm[24].x ? BLUE : RED, 14);
+      drawL(lm[26], lm[28], lm[28].x < lm[26].x ? BLUE : RED, 10);
+
+      // 頭部
       const earMid = { x: (lm[7].x + lm[8].x)/2, y: (lm[7].y + lm[8].y)/2 };
-      const fDir = { x: lm[0].x + (lm[0].x - earMid.x)*1.5, y: lm[0].y + (lm[0].y - earMid.y)*1.5 };
-      drawSeg(lm[0], fDir, "#ffff00", 3);
-      ctx.beginPath(); ctx.arc(lm[0].x*canvas.width, lm[0].y*canvas.height, 4, 0, 7); ctx.fillStyle="#ffff00"; ctx.fill();
+      const fDir = { x: lm[0].x + (lm[0].x - earMid.x)*1.8, y: lm[0].y + (lm[0].y - earMid.y)*1.8 };
+      drawL(lm[0], fDir, YELLOW, 4);
+      ctx.beginPath(); ctx.arc(lm[0].x*canvas.width, lm[0].y*canvas.height, 5, 0, 7); ctx.fillStyle=YELLOW; ctx.fill();
 
+      // 数値更新
       document.getElementById('torsion-badge').innerText = `最大捻転差: ${maxSep.toFixed(1)}°`;
-      document.getElementById('trunk-badge').innerText = `胴体: ${isTrunkExt ? 'タメ(青)' : '開放(赤)'}`;
+      document.getElementById('trunk-badge').innerText = `胴体: ${isTrunkExt ? '外旋(タメ)' : '内旋(開放)'}`;
       const isP = analysisMode.value === 'pitching';
-      const score = isP ? (maxHipSpeed*350 + maxSep*0.4 + 80) : (maxHipSpeed*280 + maxSep*0.6 + 70);
+      const score = isP ? (maxHipSpeed*380 + maxSep*0.5 + 75) : (maxHipSpeed*300 + maxSep*0.7 + 65);
       document.getElementById('prediction-badge').innerText = `予測: ${score.toFixed(1)} km/h`;
     }
   });
 
-  // 操作系ロジック
-  seekBar.oninput = () => { isSeeking = true; video.pause(); video.currentTime = seekBar.value; timeDisplay.innerText = video.currentTime.toFixed(1) + "s"; };
+  seekBar.oninput = () => { isSeeking = true; video.pause(); video.currentTime = seekBar.value; timeDisplay.innerText = video.currentTime.toFixed(2); };
   seekBar.onchange = async () => { await pose.send({image: video}); isSeeking = false; };
 
   function toggleRecording() {
@@ -163,28 +174,18 @@
 
   function togglePlay() { video.paused ? video.play() : video.pause(); }
   function resetData() { maxSep = 0; maxHipSpeed = 0; }
-
-  // 動画アップロード時の処理
   document.getElementById('upload').onchange = (e) => {
     const file = e.target.files[0];
     if (file) {
       video.src = URL.createObjectURL(file);
-      video.onloadedmetadata = () => {
-        seekBar.max = video.duration;
-        updateModeUI();
-        video.play(); // 自動再生を開始してAIを起動させる
-        requestAnimationFrame(renderLoop);
-      };
+      video.onloadedmetadata = () => { seekBar.max = video.duration; video.play(); requestAnimationFrame(renderLoop); };
     }
   };
-
   async function renderLoop() {
-    if (!video.paused || isSeeking) {
-      await pose.send({image: video});
-      if (!isSeeking) {
-        seekBar.value = video.currentTime;
-        timeDisplay.innerText = video.currentTime.toFixed(1) + "s";
-      }
+    if (!video.paused) { 
+      await pose.send({image: video}); 
+      seekBar.value = video.currentTime; 
+      timeDisplay.innerText = video.currentTime.toFixed(2);
     }
     requestAnimationFrame(renderLoop);
   }
