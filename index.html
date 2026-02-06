@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Shoulder Girdle & Core Analyzer</title>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/pose/pose.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js"></script>
+  <style>
+    body { font-family: 'Helvetica Neue', Arial, sans-serif; background: #000; color: #fff; margin: 0; overflow-x: hidden; }
+    #container { display: flex; flex-direction: column; align-items: center; padding: 10px; }
+    canvas { width: 100%; max-width: 800px; border-radius: 8px; box-shadow: 0 0 20px rgba(0,255,204,0.3); }
+    .ui-panel { background: rgba(30,30,30,0.9); width: 100%; max-width: 800px; padding: 15px; border-radius: 0 0 8px 8px; box-sizing: border-box; }
+    .data-display { font-size: 1.2rem; font-weight: bold; color: #00ffcc; margin-bottom: 10px; text-align: center; }
+    .controls { display: flex; flex-wrap: wrap; gap: 10px; justify-content: center; }
+    button, label { background: #333; color: white; border: 1px solid #555; padding: 10px 15px; border-radius: 5px; cursor: pointer; font-size: 14px; }
+    button:active { background: #555; }
+    input[type="file"] { display: none; }
+    .highlight { color: #ff3366; }
+  </style>
+</head>
+<body>
+
+<div id="container">
+  <div class="data-display">
+    捻転差（連動性）: <span id="torsion-value">--</span>°
+  </div>
+  
+  <canvas id="output_canvas"></canvas>
+
+  <div class="ui-panel">
+    <div class="controls">
+      <label for="upload">📹 動画を選択
+        <input type="file" id="upload" accept="video/*">
+      </label>
+      <button onclick="togglePlay()">再生/停止</button>
+      <button onclick="setSpeed(0.5)">0.5倍速</button>
+      <button onclick="setSpeed(1.0)">標準速</button>
+    </div>
+  </div>
+</div>
+
+<video id="input_video" playsinline muted style="display:none;"></video>
+
+<script>
+  const videoElement = document.getElementById('input_video');
+  const canvasElement = document.getElementById('output_canvas');
+  const canvasCtx = canvasElement.getContext('2d');
+  const torsionDisplay = document.getElementById('torsion-value');
+
+  // MediaPipe Pose 設定
+  const pose = new Pose({locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/pose/${file}`});
+  pose.setOptions({
+    modelComplexity: 1,
+    smoothLandmarks: true,
+    minDetectionConfidence: 0.5,
+    minTrackingConfidence: 0.5
+  });
+
+  pose.onResults(onResults);
+
+  function onResults(results) {
+    if (!results.poseLandmarks) return;
+
+    // キャンバスサイズを動画に合わせる
+    canvasElement.width = results.image.width;
+    canvasElement.height = results.image.height;
+
+    canvasCtx.save();
+    canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
+    canvasCtx.drawImage(results.image, 0, 0, canvasElement.width, canvasElement.height);
+
+    const lm = results.poseLandmarks;
+    
+    // 肩(11, 12)と腰(23, 24)
+    const leftSh = lm[11]; const rightSh = lm[12];
+    const leftHip = lm[23]; const rightHip = lm[24];
+
+    // 角度計算
+    const shAngle = Math.atan2(rightSh.y - leftSh.y, rightSh.x - leftSh.x) * 180 / Math.PI;
+    const hipAngle = Math.atan2(rightHip.y - leftHip.y, rightHip.x - leftHip.x) * 180 / Math.PI;
+    const torsion = Math.abs(shAngle - hipAngle).toFixed(1);
+    
+    torsionDisplay.innerText = torsion;
+
+    // 描画：腕などは細いグレーで（背景化）
+    drawConnectors(canvasCtx, lm, POSE_CONNECTIONS, {color: 'rgba(200, 200, 200, 0.3)', lineWidth: 2});
+
+    // 描画：肩甲帯と骨盤のラインを強調（ここがメイン）
+    // 肩ライン
+    canvasCtx.beginPath();
+    canvasCtx.moveTo(leftSh.x * canvasElement.width, leftSh.y * canvasElement.height);
+    canvasCtx.lineTo(rightSh.x * canvasElement.width, rightSh.y * canvasElement.height);
+    canvasCtx.strokeStyle = '#00ffcc'; canvasCtx.lineWidth = 8; canvasCtx.stroke();
+
+    // 腰ライン
+    canvasCtx.beginPath();
+    canvasCtx.moveTo(leftHip.x * canvasElement.width, leftHip.y * canvasElement.height);
+    canvasCtx.lineTo(rightHip.x * canvasElement.width, rightHip.y * canvasElement.height);
+    canvasCtx.strokeStyle = '#ff3366'; canvasCtx.lineWidth = 8; canvasCtx.stroke();
+
+    canvasCtx.restore();
+  }
+
+  // 動画アップロード処理
+  document.getElementById('upload').addEventListener('change', function(e) {
+    const file = e.target.files[0];
+    if (!file) return;
+    videoElement.src = URL.createObjectURL(file);
+    videoElement.play();
+    
+    async function process() {
+      if (!videoElement.paused && !videoElement.ended) {
+        await pose.send({image: videoElement});
+      }
+      requestAnimationFrame(process);
+    }
+    process();
+  });
+
+  function togglePlay() {
+    videoElement.paused ? videoElement.play() : videoElement.pause();
+  }
+
+  function setSpeed(speed) {
+    videoElement.playbackRate = speed;
+  }
+</script>
+
+</body>
+</html>
