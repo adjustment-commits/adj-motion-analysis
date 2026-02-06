@@ -1,64 +1,67 @@
-
 <!DOCTYPE html>
 <html lang="ja">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <title>Kinetic Analysis - Professional</title>
+  <title>Kinetic Linkage Pro - Field Work</title>
   <script src="https://cdn.jsdelivr.net/npm/@mediapipe/pose/pose.js"></script>
   <style>
-    html, body { margin: 0; padding: 0; width: 100vw; height: 100vh; overflow: hidden; background: #000; position: fixed; }
+    /* 画面全体の固定 */
+    html, body { margin: 0; padding: 0; width: 100vw; height: 100vh; overflow: hidden; background: #000; position: fixed; font-family: sans-serif; }
     #app-container { display: flex; flex-direction: column; width: 100%; height: 100%; }
 
-    /* 上部操作：位置を完全に固定 */
-    .ui-header { background: #1a1a1a; border-bottom: 1px solid #333; padding: 10px; z-index: 100; flex-shrink: 0; }
-    .btn-row { display: flex; gap: 8px; height: 44px; }
-    button, label, select { 
-      background: #333; color: #fff; border: 1px solid #555; border-radius: 8px; 
-      font-size: 13px; font-weight: bold; flex: 1; display: flex; justify-content: center; align-items: center; -webkit-appearance: none;
-    }
+    /* 上部：設定・モード選択（高さ固定） */
+    .ui-top { height: 60px; background: #1a1a1a; display: flex; gap: 10px; padding: 10px 20px; align-items: center; border-bottom: 1px solid #333; flex-shrink: 0; }
+    select, .upload-label { background: #333; color: #fff; border: 1px solid #555; padding: 10px; border-radius: 8px; font-size: 14px; flex: 1; text-align: center; }
 
-    /* 描画エリア */
-    .display-area { flex: 1; position: relative; overflow: hidden; }
-    canvas { width: 100%; height: 100%; object-fit: contain; }
+    /* 中央：動画描画エリア（余白を設けて動画を小さく表示） */
+    .display-area { flex: 1; position: relative; background: #000; padding: 20px; box-sizing: border-box; display: flex; justify-content: center; align-items: center; }
+    canvas { max-width: 100%; max-height: 100%; object-fit: contain; box-shadow: 0 0 20px rgba(0,255,204,0.2); }
 
-    /* 判定バッジ（左右両腕を独立表示） */
-    .status-panel { position: absolute; top: 15px; left: 15px; z-index: 50; pointer-events: none; }
-    .badge { background: rgba(0,0,0,0.8); padding: 8px 12px; border-radius: 4px; font-size: 14px; margin-bottom: 5px; border-left: 5px solid #fff; }
+    /* ステータスバッジ */
+    .status-overlay { position: absolute; top: 30px; left: 30px; z-index: 10; pointer-events: none; }
+    .badge { background: rgba(0,0,0,0.8); padding: 6px 12px; border-radius: 4px; font-size: 13px; margin-bottom: 5px; border-left: 4px solid #fff; color: #fff; }
 
-    /* 下部：スライダー（iPadセーフエリア確保） */
-    .ui-footer { background: #111; padding: 10px 20px 50px 20px; border-top: 1px solid #333; flex-shrink: 0; }
-    .slider-row { display: flex; align-items: center; gap: 15px; }
-    input[type="range"] { flex: 1; height: 44px; accent-color: #00ffcc; }
-    #time-display { font-family: monospace; font-size: 18px; color: #00ffcc; min-width: 70px; }
+    /* 下部：操作系（ここを最も余裕を持たせる） */
+    .ui-bottom { height: 220px; background: #111; border-top: 1px solid #333; padding: 20px 30px 60px 30px; flex-shrink: 0; box-sizing: border-box; }
+    
+    /* スライダー：ホームバーから遠ざける */
+    .slider-container { display: flex; flex-direction: column; gap: 10px; margin-bottom: 25px; }
+    .slider-info { display: flex; justify-content: space-between; color: #00ffcc; font-family: monospace; font-size: 18px; }
+    input[type="range"] { width: 100%; height: 50px; accent-color: #00ffcc; }
+
+    /* メインボタン：大きく、押しやすく */
+    .btn-row { display: flex; gap: 15px; height: 65px; }
+    .main-btn { flex: 1; background: #2a2a2a; color: #fff; border: 1px solid #444; border-radius: 12px; font-size: 18px; font-weight: bold; }
+    .main-btn:active { background: #444; }
+    #slow-btn.active { background: #00ffcc; color: #000; border-color: #00ffcc; }
   </style>
 </head>
 <body>
 
 <div id="app-container">
-  <div class="ui-header">
-    <div class="btn-row">
-      <label for="upload">📹動画選択<input type="file" id="upload" accept="video/*" style="display:none"></label>
-      <select id="mode-select"><option value="pitch">投球解析</option><option value="bat">打撃解析</option></select>
-      <select id="view-mode"><option value="both">実写＋骨格</option><option value="stick">骨格のみ</option></select>
-      <button onclick="video.paused ? video.play() : video.pause()">▷/||</button>
-      <button id="slow-btn" onclick="toggleSlow()">SLOW</button>
-    </div>
+  <div class="ui-top">
+    <label class="upload-label">📹 動画選択<input type="file" id="upload" accept="video/*" style="display:none"></label>
+    <select id="mode-select"><option value="pitch">投球モード</option><option value="bat">打撃モード</option></select>
+    <select id="view-mode"><option value="both">実写＋骨格</option><option value="stick">骨格のみ</option></select>
   </div>
 
   <div class="display-area">
     <canvas id="output_canvas"></canvas>
-    <div class="status-panel">
-      <div id="badge-mode" class="badge">MODE: --</div>
+    <div class="status-overlay">
       <div id="badge-r" class="badge">右腕: --</div>
       <div id="badge-l" class="badge">左腕: --</div>
     </div>
   </div>
 
-  <div class="ui-footer">
-    <div class="slider-row">
-      <span id="time-display">0.00s</span>
+  <div class="ui-bottom">
+    <div class="slider-container">
+      <div class="slider-info"><span id="time-display">0.00s</span><span>FRAME SEEK</span></div>
       <input type="range" id="seek-bar" value="0" step="0.001">
+    </div>
+    <div class="btn-row">
+      <button class="main-btn" onclick="video.paused ? video.play() : video.pause()">再生 / 一時停止</button>
+      <button id="slow-btn" class="main-btn" onclick="toggleSlow()">SLOW (0.25x)</button>
     </div>
   </div>
 </div>
@@ -97,13 +100,13 @@
         ctx.strokeStyle = col; ctx.lineWidth = w; ctx.lineCap = "round"; ctx.stroke();
       };
 
-      // 1. 頭の方向（鼻先ベクトル）
+      // 鼻先ベクトル（頭の向き）
       const nose = lm[0];
       const earAvg = { x: (lm[7].x + lm[8].x)/2, y: (lm[7].y + lm[8].y)/2 };
       const headDir = { x: nose.x + (nose.x - earAvg.x), y: nose.y + (nose.y - earAvg.y) };
-      draw(nose, headDir, "#ffff00", 3);
+      draw(nose, headDir, "#ffff00", 4);
 
-      // 2. 胸郭ボックス
+      // 胸郭（判定文字なし）
       ctx.beginPath();
       ctx.moveTo(lm[11].x*canvas.width, lm[11].y*canvas.height);
       ctx.lineTo(lm[12].x*canvas.width, lm[12].y*canvas.height);
@@ -112,25 +115,22 @@
       ctx.closePath();
       ctx.fillStyle = "rgba(255,255,255,0.15)"; ctx.fill(); ctx.strokeStyle = "#fff"; ctx.stroke();
 
-      // 3. モード別・左右腕の判定
       const isPitch = modeSelect.value === 'pitch';
-      document.getElementById('badge-mode').innerText = isPitch ? "MODE: PITCHING" : "MODE: BATTING";
 
-      // 右腕判定
+      // 右腕・左腕（色彩判定復活）
       const rExt = isPitch ? (lm[16].x < lm[14].x + 0.05) : (lm[16].y > lm[14].y);
       const rCol = rExt ? "#00e5ff" : "#ff3366";
       draw(lm[12], lm[14], rCol, 12); draw(lm[14], lm[16], rCol, 8);
       document.getElementById('badge-r').innerText = `右腕: ${rExt ? 'タメ' : '開放'}`;
       document.getElementById('badge-r').style.borderColor = rCol;
 
-      // 左腕判定
       const lExt = isPitch ? (lm[15].x > lm[13].x - 0.05) : (lm[15].y > lm[13].y);
       const lCol = lExt ? "#00e5ff" : "#ff3366";
       draw(lm[11], lm[13], lCol, 12); draw(lm[13], lm[15], lCol, 8);
       document.getElementById('badge-l').innerText = `左腕: ${lExt ? 'タメ' : '開放'}`;
       document.getElementById('badge-l').style.borderColor = lCol;
 
-      // 4. 下半身
+      // 下半身
       draw(lm[24], lm[26], "#00ffcc", 10); draw(lm[26], lm[28], "#00ffcc", 10);
       draw(lm[23], lm[25], "#00ffcc", 10); draw(lm[25], lm[27], "#00ffcc", 10);
     }
@@ -150,9 +150,7 @@
 
   function toggleSlow() {
     video.playbackRate = video.playbackRate === 1.0 ? 0.25 : 1.0;
-    const btn = document.getElementById('slow-btn');
-    btn.style.background = video.playbackRate === 0.25 ? "#00ffcc" : "#333";
-    btn.style.color = video.playbackRate === 0.25 ? "#000" : "#fff";
+    document.getElementById('slow-btn').classList.toggle('active', video.playbackRate === 0.25);
   }
 
   document.getElementById('upload').onchange = (e) => {
