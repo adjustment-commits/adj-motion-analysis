@@ -2,38 +2,63 @@
 <html lang="ja">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <title>Kinetic Linkage - Field Fix</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <title>Kinetic Linkage - Field Master</title>
   <script src="https://cdn.jsdelivr.net/npm/@mediapipe/pose/pose.js"></script>
   <style>
+    /* 画面全体を固定、iPadのセーフエリア（ホームバー付近）を考慮 */
+    :root { --safe-bottom: env(safe-area-inset-bottom, 30px); }
     html, body { margin: 0; padding: 0; width: 100vw; height: 100vh; overflow: hidden; background: #000; position: fixed; }
+    
     #app-container { display: flex; flex-direction: column; width: 100%; height: 100vh; }
 
-    /* 上部：最小限の設定 */
-    .ui-top { height: 50px; background: #1a1a1a; display: flex; gap: 10px; padding: 5px 15px; align-items: center; flex-shrink: 0; }
+    /* 上部設定パネル */
+    .ui-top { height: 50px; background: #1a1a1a; display: flex; gap: 8px; padding: 5px 15px; align-items: center; flex-shrink: 0; }
     select, .upload-label { background: #333; color: #fff; border: 1px solid #555; padding: 8px; border-radius: 6px; font-size: 12px; flex: 1; text-align: center; }
 
-    /* 中央：描画エリア */
+    /* 中央描画エリア */
     .display-area { flex: 1; min-height: 0; position: relative; background: #000; display: flex; justify-content: center; align-items: center; }
     canvas { max-width: 100%; max-height: 100%; object-fit: contain; }
 
-    /* 下部：一体型操作パネル（ホームバー回避） */
-    .ui-bottom { height: 180px; background: #111; border-top: 1px solid #333; padding: 10px 20px 40px 20px; flex-shrink: 0; box-sizing: border-box; }
+    /* 下部：現場操作デッキ（ここを絶対死守） */
+    .ui-bottom { 
+      background: #111; 
+      border-top: 2px solid #333; 
+      /* ホームバー回避のため、下の余白を大幅に確保(50px以上) */
+      padding: 15px 20px calc(var(--safe-bottom) + 30px) 20px; 
+      flex-shrink: 0; 
+      box-sizing: border-box; 
+    }
     
-    /* スライダー行：両端にボタン */
-    .control-row { display: flex; align-items: center; gap: 10px; margin-bottom: 15px; }
-    .side-btn { width: 60px; height: 60px; background: #2a2a2a; color: #fff; border: 1px solid #444; border-radius: 50%; font-size: 24px; display: flex; justify-content: center; align-items: center; flex-shrink: 0; }
-    .side-btn:active { background: #444; }
+    /* スライダーと再生ボタンを横一列に。指の動線を最小化 */
+    .main-control-row { display: flex; align-items: center; gap: 15px; margin-bottom: 20px; }
+    .play-circle { 
+      width: 65px; height: 65px; background: #00ffcc; color: #000; 
+      border: none; border-radius: 50%; font-size: 28px; 
+      display: flex; justify-content: center; align-items: center; flex-shrink: 0; 
+      box-shadow: 0 0 15px rgba(0,255,204,0.4);
+    }
+    .play-circle:active { background: #00ccaa; }
     
-    input[type="range"] { flex: 1; height: 40px; accent-color: #00ffcc; }
+    /* スライダー本体 */
+    .seek-container { flex: 1; display: flex; flex-direction: column; gap: 5px; }
+    input[type="range"] { 
+      width: 100%; height: 45px; cursor: pointer;
+      accent-color: #00ffcc; /* スライダーの色を強調 */
+    }
+    .time-info { color: #00ffcc; font-family: monospace; font-size: 16px; font-weight: bold; }
 
-    /* サブボタン行 */
-    .sub-btn-row { display: flex; gap: 10px; height: 44px; }
-    .sub-btn { flex: 1; background: #222; color: #ccc; border: 1px solid #444; border-radius: 8px; font-size: 14px; font-weight: bold; }
-    .active { background: #00ffcc !important; color: #000 !important; }
+    /* サブ操作：コマ送りとスロー */
+    .sub-control-row { display: flex; gap: 10px; }
+    .btn-frame { 
+      flex: 1; height: 50px; background: #2a2a2a; color: #fff; 
+      border: 1px solid #444; border-radius: 10px; font-size: 14px; font-weight: bold; 
+    }
+    .btn-frame:active { background: #444; }
+    .active-slow { background: #00ffcc !important; color: #000 !important; }
 
-    /* 判定バッジ */
-    .status-overlay { position: absolute; top: 15px; left: 15px; z-index: 10; pointer-events: none; }
+    /* ステータス（バッジ） */
+    .badge-area { position: absolute; top: 15px; left: 15px; z-index: 50; pointer-events: none; }
     .badge { background: rgba(0,0,0,0.8); padding: 5px 10px; border-radius: 4px; font-size: 12px; margin-bottom: 4px; border-left: 4px solid #fff; color: #fff; }
   </style>
 </head>
@@ -41,30 +66,32 @@
 
 <div id="app-container">
   <div class="ui-top">
-    <label class="upload-label">📹 選択<input type="file" id="upload" accept="video/*" style="display:none"></label>
-    <select id="mode-select"><option value="pitch">投球解析</option><option value="bat">打撃解析</option></select>
+    <label class="upload-label">📹 動画選択<input type="file" id="upload" accept="video/*" style="display:none"></label>
+    <select id="mode-select"><option value="pitch">投球モード</option><option value="bat">打撃モード</option></select>
     <select id="view-mode"><option value="both">実写＋骨格</option><option value="stick">骨格のみ</option></select>
   </div>
 
   <div class="display-area">
     <canvas id="output_canvas"></canvas>
-    <div class="status-overlay">
+    <div class="badge-area">
       <div id="badge-r" class="badge">右腕: --</div>
       <div id="badge-l" class="badge">左腕: --</div>
     </div>
   </div>
 
   <div class="ui-bottom">
-    <div class="control-row">
-      <button class="side-btn" id="play-pause-btn">▶</button>
-      <input type="range" id="seek-bar" value="0" step="0.001">
-      <div id="time-display" style="color:#00ffcc; font-family:monospace; min-width:50px;">0.00</div>
+    <div class="main-control-row">
+      <button class="play-circle" id="play-btn">▶</button>
+      <div class="seek-container">
+        <div class="time-info"><span id="time-display">0.00</span> / <span id="duration-display">0.00</span>s</div>
+        <input type="range" id="seek-bar" value="0" step="0.001">
+      </div>
     </div>
     
-    <div class="sub-btn-row">
-      <button class="sub-btn" onclick="video.currentTime -= 0.033">◀ コマ戻し</button>
-      <button class="sub-btn" id="slow-btn" onclick="toggleSlow()">SLOW (0.25x)</button>
-      <button class="sub-btn" onclick="video.currentTime += 0.033">コマ送り ▶</button>
+    <div class="sub-control-row">
+      <button class="btn-frame" onclick="stepFrame(-1)">◀ コマ戻し</button>
+      <button class="btn-frame" id="slow-btn" onclick="toggleSlow()">SLOW (0.25x)</button>
+      <button class="btn-frame" onclick="stepFrame(1)">コマ送り ▶</button>
     </div>
   </div>
 </div>
@@ -76,9 +103,9 @@
   const canvas = document.getElementById('output_canvas');
   const ctx = canvas.getContext('2d');
   const seekBar = document.getElementById('seek-bar');
-  const modeSelect = document.getElementById('mode-select');
-  const playPauseBtn = document.getElementById('play-pause-btn');
+  const playBtn = document.getElementById('play-btn');
   const timeDisplay = document.getElementById('time-display');
+  const durationDisplay = document.getElementById('duration-display');
   
   let isSeeking = false;
 
@@ -104,13 +131,13 @@
         ctx.strokeStyle = col; ctx.lineWidth = w; ctx.lineCap = "round"; ctx.stroke();
       };
 
-      // 頭のベクトル
+      // 1. 頭のベクトル
       const nose = lm[0];
       const earAvg = { x: (lm[7].x + lm[8].x)/2, y: (lm[7].y + lm[8].y)/2 };
       const headDir = { x: nose.x + (nose.x - earAvg.x), y: nose.y + (nose.y - earAvg.y) };
       draw(nose, headDir, "#ffff00", 4);
 
-      // 胸郭
+      // 2. 胸郭ボックス（半身判定文字なし）
       ctx.beginPath();
       ctx.moveTo(lm[11].x*canvas.width, lm[11].y*canvas.height);
       ctx.lineTo(lm[12].x*canvas.width, lm[12].y*canvas.height);
@@ -119,23 +146,21 @@
       ctx.closePath();
       ctx.fillStyle = "rgba(255,255,255,0.15)"; ctx.fill(); ctx.strokeStyle = "#fff"; ctx.stroke();
 
-      const isPitch = modeSelect.value === 'pitch';
+      const isPitch = document.getElementById('mode-select').value === 'pitch';
 
-      // 右腕
+      // 3. 左右腕：タメ（青）と解放（赤）
       const rExt = isPitch ? (lm[16].x < lm[14].x + 0.05) : (lm[16].y > lm[14].y);
       const rCol = rExt ? "#00e5ff" : "#ff3366";
       draw(lm[12], lm[14], rCol, 12); draw(lm[14], lm[16], rCol, 8);
-      document.getElementById('badge-r').innerText = `右腕: ${rExt ? 'タメ' : '開放'}`;
+      document.getElementById('badge-r').innerText = `右腕: ${rExt ? 'タメ' : '解放'}`;
       document.getElementById('badge-r').style.borderColor = rCol;
 
-      // 左腕
       const lExt = isPitch ? (lm[15].x > lm[13].x - 0.05) : (lm[15].y > lm[13].y);
       const lCol = lExt ? "#00e5ff" : "#ff3366";
       draw(lm[11], lm[13], lCol, 12); draw(lm[13], lm[15], lCol, 8);
-      document.getElementById('badge-l').innerText = `左腕: ${lExt ? 'タメ' : '開放'}`;
+      document.getElementById('badge-l').innerText = `左腕: ${lExt ? 'タメ' : '解放'}`;
       document.getElementById('badge-l').style.borderColor = lCol;
 
-      // 脚
       draw(lm[24], lm[26], "#00ffcc", 10); draw(lm[26], lm[28], "#00ffcc", 10);
       draw(lm[23], lm[25], "#00ffcc", 10); draw(lm[25], lm[27], "#00ffcc", 10);
     }
@@ -146,25 +171,30 @@
     }
   });
 
-  // 再生ボタン制御
-  playPauseBtn.onclick = () => {
-    if (video.paused) { video.play(); playPauseBtn.innerText = "‖"; }
-    else { video.pause(); playPauseBtn.innerText = "▶"; }
+  // 操作ロジック
+  playBtn.onclick = () => {
+    if (video.paused) { video.play(); playBtn.innerText = "‖"; }
+    else { video.pause(); playBtn.innerText = "▶"; }
   };
 
-  // スライダー制御（再生終了後も動くように調整）
-  seekBar.onpointerdown = () => { isSeeking = true; video.pause(); playPauseBtn.innerText = "▶"; };
+  seekBar.onpointerdown = () => { isSeeking = true; video.pause(); playBtn.innerText = "▶"; };
   seekBar.onpointerup = () => { isSeeking = false; };
   seekBar.oninput = () => {
     video.currentTime = seekBar.value;
     timeDisplay.innerText = parseFloat(seekBar.value).toFixed(2);
-    // 強制的に1フレーム解析を実行
     pose.send({image: video});
   };
 
+  function stepFrame(dir) {
+    video.pause();
+    playBtn.innerText = "▶";
+    video.currentTime += (dir * 0.033);
+    pose.send({image: video});
+  }
+
   function toggleSlow() {
     video.playbackRate = video.playbackRate === 1.0 ? 0.25 : 1.0;
-    document.getElementById('slow-btn').classList.toggle('active', video.playbackRate === 0.25);
+    document.getElementById('slow-btn').classList.toggle('active-slow', video.playbackRate === 0.25);
   }
 
   document.getElementById('upload').onchange = (e) => {
@@ -173,18 +203,15 @@
       video.src = URL.createObjectURL(file);
       video.onloadedmetadata = () => { 
         seekBar.max = video.duration; 
-        video.play(); 
-        playPauseBtn.innerText = "‖";
+        durationDisplay.innerText = video.duration.toFixed(2);
+        video.play(); playBtn.innerText = "‖";
         requestAnimationFrame(render); 
       };
     }
   };
 
   async function render() {
-    // 動画が一時停止中でも、スライダー操作中なら解析を継続する
-    if (!video.paused || isSeeking) { 
-      await pose.send({image: video}); 
-    }
+    if (!video.paused || isSeeking) { await pose.send({image: video}); }
     requestAnimationFrame(render);
   }
 </script>
