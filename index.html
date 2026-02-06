@@ -3,104 +3,116 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Kinetic Chain Fix - Display OK</title>
+  <title>Kinetic Chain - Auto Impact Capture</title>
   <script src="https://cdn.jsdelivr.net/npm/@mediapipe/pose/pose.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js"></script>
   <style>
-    body { font-family: sans-serif; background: #000; color: #fff; margin: 0; text-align: center; }
-    .main-view { position: relative; width: 100vw; height: 70vh; background: #111; display: flex; justify-content: center; align-items: center; }
-    canvas { max-width: 100%; max-height: 100%; border: 1px solid #333; }
-    .controls { padding: 20px; background: #222; display: flex; flex-wrap: wrap; gap: 10px; justify-content: center; }
-    label, button { background: #444; color: white; border: none; padding: 12px 20px; border-radius: 8px; cursor: pointer; }
-    .status-panel { padding: 10px; font-size: 1.2rem; color: #00ffcc; font-weight: bold; }
-    input[type="checkbox"] { transform: scale(1.5); margin-right: 10px; }
+    body { font-family: sans-serif; background: #000; color: #fff; margin: 0; text-align: center; overflow: hidden; }
+    .main-view { position: relative; width: 100vw; height: 65vh; background: #000; }
+    canvas { max-width: 100%; max-height: 100%; }
+    .ui-panel { height: 35vh; background: #1a1a1a; padding: 15px; box-sizing: border-box; }
+    .score-display { display: flex; justify-content: space-around; margin-bottom: 15px; }
+    .score-box { border-left: 4px solid #00ffcc; padding: 5px 15px; text-align: left; }
+    .score-label { font-size: 12px; color: #aaa; }
+    .score-value { font-size: 24px; font-weight: bold; color: #00ffcc; }
+    .controls { display: flex; flex-wrap: wrap; gap: 10px; justify-content: center; }
+    button, label { background: #333; color: white; border: 1px solid #555; padding: 12px 18px; border-radius: 8px; cursor: pointer; font-size: 14px; }
+    button:active { background: #00ffcc; color: #000; }
+    #download-link { display: none; }
   </style>
 </head>
 <body>
-
-<div class="status-panel" id="info">動画をアップロードしてください</div>
 
 <div class="main-view">
   <video id="input_video" playsinline muted style="display:none;"></video>
   <canvas id="output_canvas"></canvas>
 </div>
 
-<div class="controls">
-  <label for="upload">📹 動画を選択
-    <input type="file" id="upload" accept="video/*" style="display:none">
-  </label>
-  
-  <div style="background:#333; padding:10px; border-radius:8px;">
-    <input type="checkbox" id="stick_only">
-    <span>スティックのみ表示</span>
+<div class="ui-panel">
+  <div class="score-display">
+    <div class="score-box">
+      <div class="score-label">現在の捻転差</div>
+      <div class="score-value" id="current-sep">0.0°</div>
+    </div>
+    <div class="score-box" style="border-left-color: #ffcc00;">
+      <div class="score-label">MAXタメ(独立性)</div>
+      <div class="score-value" id="max-sep">0.0°</div>
+    </div>
   </div>
 
-  <button onclick="playVideo()">再生/一時停止</button>
-  <button onclick="videoElement.playbackRate = 0.2">スロー(0.2x)</button>
+  <div class="controls">
+    <label for="upload">📹 動画選択<input type="file" id="upload" accept="video/*" style="display:none"></label>
+    <button onclick="togglePlay()" id="btn-play">再生/停止</button>
+    <button onclick="saveImage()" style="background: #0055ff;">📸 解析画像を保存</button>
+    <button onclick="resetMax()">リセット</button>
+  </div>
+  <p style="font-size: 12px; color: #888; margin-top: 10px;">※インパクトの瞬間を検知すると自動で停止します</p>
 </div>
+
+<a id="download-link"></a>
 
 <script>
   const videoElement = document.getElementById('input_video');
   const canvasElement = document.getElementById('output_canvas');
   const canvasCtx = canvasElement.getContext('2d');
-  const stickOnlyCheck = document.getElementById('stick_only');
-  const info = document.getElementById('info');
+  const currentSepDisplay = document.getElementById('current-sep');
+  const maxSepDisplay = document.getElementById('max-sep');
+
+  let maxSep = 0;
+  let isImpactDetected = false;
+  let lastWristX = 0;
 
   const pose = new Pose({locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/pose/${file}`});
   pose.setOptions({ modelComplexity: 1, smoothLandmarks: true, minDetectionConfidence: 0.5 });
 
-  // 解析結果が出た時の描画処理
   pose.onResults((results) => {
-    // キャンバスサイズを動画に合わせる
     canvasElement.width = results.image.width;
     canvasElement.height = results.image.height;
+    
+    // 背景：スティックモード固定
+    canvasCtx.fillStyle = "#000";
+    canvasCtx.fillRect(0, 0, canvasElement.width, canvasElement.height);
 
-    canvasCtx.save();
-    canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
-
-    // 1. 動画を表示するか、真っ黒にするか
-    if (stickOnlyCheck.checked) {
-      canvasCtx.fillStyle = "#000";
-      canvasCtx.fillRect(0, 0, canvasElement.width, canvasElement.height);
-    } else {
-      canvasCtx.drawImage(results.image, 0, 0, canvasElement.width, canvasElement.height);
-    }
-
-    // 2. 骨格（スティック）の描画
     if (results.poseLandmarks) {
       const lm = results.poseLandmarks;
-      
-      // 基本の線
-      drawConnectors(canvasCtx, lm, POSE_CONNECTIONS, {color: 'rgba(255,255,255,0.5)', lineWidth: 2});
+      const lSh = lm[11], rSh = lm[12], lHip = lm[23], rHip = lm[24], lWr = lm[15];
 
-      // 肩甲帯（11-12）を強調
-      const lSh = lm[11], rSh = lm[12];
+      // 1. 捻転差の計算
+      const shAng = Math.atan2(rSh.y - lSh.y, rSh.x - lSh.x) * 180 / Math.PI;
+      const hipAng = Math.atan2(rHip.y - lHip.y, rHip.x - lHip.x) * 180 / Math.PI;
+      const sep = Math.abs(shAng - hipAng);
+      
+      currentSepDisplay.innerText = sep.toFixed(1) + "°";
+      if (sep > maxSep) {
+        maxSep = sep;
+        maxSepDisplay.innerText = maxSep.toFixed(1) + "°";
+      }
+
+      // 2. インパクト簡易検知（手首が体幹を超えて加速した瞬間）
+      const wristSpeed = Math.abs(lWr.x - lastWristX);
+      if (!isImpactDetected && lWr.x < lSh.x && wristSpeed > 0.05) {
+        isImpactDetected = true;
+        videoElement.pause();
+        document.getElementById('btn-play').innerText = "再開";
+      }
+      lastWristX = lWr.x;
+
+      // 3. 描画
+      drawConnectors(canvasCtx, lm, POSE_CONNECTIONS, {color: '#333', lineWidth: 2});
+      
+      // 肩甲帯ライン
       canvasCtx.beginPath();
       canvasCtx.moveTo(lSh.x * canvasElement.width, lSh.y * canvasElement.height);
       canvasCtx.lineTo(rSh.x * canvasElement.width, rSh.y * canvasElement.height);
-      canvasCtx.strokeStyle = "#00ffcc";
-      canvasCtx.lineWidth = 8;
+      canvasCtx.strokeStyle = (sep > 35) ? "#00ffcc" : "#ff3366"; // 35度以上なら青（合格）
+      canvasCtx.lineWidth = 10;
       canvasCtx.stroke();
-      
-      info.innerText = "解析中...";
-    }
-    canvasCtx.restore();
-  });
 
-  // 動画読み込み処理
-  document.getElementById('upload').addEventListener('change', function(e) {
-    const file = e.target.files[0];
-    if (!file) return;
-    
-    info.innerText = "読み込み中...";
-    const url = URL.createObjectURL(file);
-    videoElement.src = url;
-    
-    // 動画が読み込まれたら解析ループ開始
-    videoElement.onloadedmetadata = () => {
-      videoElement.play();
-      requestAnimationFrame(renderLoop);
-    };
+      // 数値のオーバーレイ描画（画像保存用）
+      canvasCtx.fillStyle = "#fff";
+      canvasCtx.font = "30px sans-serif";
+      canvasCtx.fillText("Torsion: " + sep.toFixed(1) + "°", 50, 50);
+    }
   });
 
   async function renderLoop() {
@@ -110,12 +122,37 @@
     requestAnimationFrame(renderLoop);
   }
 
-  function playVideo() {
-    if (videoElement.paused) {
+  document.getElementById('upload').addEventListener('change', function(e) {
+    maxSep = 0;
+    isImpactDetected = false;
+    videoElement.src = URL.createObjectURL(e.target.files[0]);
+    videoElement.onloadedmetadata = () => {
       videoElement.play();
+      renderLoop();
+    };
+  });
+
+  function togglePlay() {
+    if (videoElement.paused) {
+      isImpactDetected = false; // 再開時は検知フラグをリセット
+      videoElement.play();
+      document.getElementById('btn-play').innerText = "停止";
     } else {
       videoElement.pause();
+      document.getElementById('btn-play').innerText = "再生";
     }
+  }
+
+  function resetMax() {
+    maxSep = 0;
+    maxSepDisplay.innerText = "0.0°";
+  }
+
+  function saveImage() {
+    const link = document.getElementById('download-link');
+    link.href = canvasElement.toDataURL("image/png");
+    link.download = "analysis_capture.png";
+    link.click();
   }
 </script>
 </body>
