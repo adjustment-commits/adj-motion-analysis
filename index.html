@@ -3,129 +3,120 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Elite Kinetic Chain Analyzer</title>
+  <title>Kinetic Chain Fix - Display OK</title>
   <script src="https://cdn.jsdelivr.net/npm/@mediapipe/pose/pose.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js"></script>
   <style>
-    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #000; color: #fff; margin: 0; overflow: hidden; }
-    .viewer-container { display: flex; height: 75vh; background: #050505; border-bottom: 2px solid #333; }
-    canvas { flex: 1; width: 50%; object-fit: contain; }
-    .ui-panel { height: 25vh; padding: 10px; background: #111; display: flex; flex-direction: column; gap: 10px; }
-    .status-row { display: flex; justify-content: space-around; font-size: 12px; color: #00ffcc; text-transform: uppercase; letter-spacing: 1px; }
-    .controls { display: flex; justify-content: center; gap: 8px; flex-wrap: wrap; }
-    button, label { background: #222; border: 1px solid #444; color: white; padding: 10px 16px; border-radius: 8px; font-size: 12px; cursor: pointer; transition: 0.2s; }
-    button:active { background: #00ffcc; color: #000; }
-    .highlight-btn { border-color: #00ffcc; color: #00ffcc; }
-    #sync-slider { width: 90%; margin: 10px auto; }
+    body { font-family: sans-serif; background: #000; color: #fff; margin: 0; text-align: center; }
+    .main-view { position: relative; width: 100vw; height: 70vh; background: #111; display: flex; justify-content: center; align-items: center; }
+    canvas { max-width: 100%; max-height: 100%; border: 1px solid #333; }
+    .controls { padding: 20px; background: #222; display: flex; flex-wrap: wrap; gap: 10px; justify-content: center; }
+    label, button { background: #444; color: white; border: none; padding: 12px 20px; border-radius: 8px; cursor: pointer; }
+    .status-panel { padding: 10px; font-size: 1.2rem; color: #00ffcc; font-weight: bold; }
+    input[type="checkbox"] { transform: scale(1.5); margin-right: 10px; }
   </style>
 </head>
 <body>
 
-<div class="viewer-container">
-  <canvas id="canvas_0"></canvas>
-  <canvas id="canvas_1"></canvas>
+<div class="status-panel" id="info">動画をアップロードしてください</div>
+
+<div class="main-view">
+  <video id="input_video" playsinline muted style="display:none;"></video>
+  <canvas id="output_canvas"></canvas>
 </div>
 
-<div class="ui-panel">
-  <div class="status-row">
-    <div id="status_0">A: 待機中</div>
-    <div id="status_1">B: 待機中</div>
-  </div>
+<div class="controls">
+  <label for="upload">📹 動画を選択
+    <input type="file" id="upload" accept="video/*" style="display:none">
+  </label>
   
-  <input type="range" id="sync-slider" min="0" max="100" value="0" step="0.1">
-
-  <div class="controls">
-    <label>📹 動画A<input type="file" id="up_0" style="display:none"></label>
-    <label>📹 動画B<input type="file" id="up_1" style="display:none"></label>
-    <button class="highlight-btn" onclick="autoDetectImpact()">💥 インパクトで同期</button>
-    <button onclick="togglePlay()">再生/停止</button>
-    <button onclick="changeSpeed(0.1)">0.1倍速</button>
-    <button onclick="resetAnalytic()">リセット</button>
+  <div style="background:#333; padding:10px; border-radius:8px;">
+    <input type="checkbox" id="stick_only">
+    <span>スティックのみ表示</span>
   </div>
-</div>
 
-<video id="vid_0" playsinline muted style="display:none;"></video>
-<video id="vid_1" playsinline muted style="display:none;"></video>
+  <button onclick="playVideo()">再生/一時停止</button>
+  <button onclick="videoElement.playbackRate = 0.2">スロー(0.2x)</button>
+</div>
 
 <script>
-  const videos = [document.getElementById('vid_0'), document.getElementById('vid_1')];
-  const canvases = [document.getElementById('canvas_0'), document.getElementById('canvas_1')];
-  const statuses = [document.getElementById('status_0'), document.getElementById('status_1')];
-  const slider = document.getElementById('sync-slider');
+  const videoElement = document.getElementById('input_video');
+  const canvasElement = document.getElementById('output_canvas');
+  const canvasCtx = canvasElement.getContext('2d');
+  const stickOnlyCheck = document.getElementById('stick_only');
+  const info = document.getElementById('info');
 
   const pose = new Pose({locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/pose/${file}`});
   pose.setOptions({ modelComplexity: 1, smoothLandmarks: true, minDetectionConfidence: 0.5 });
 
-  let isPlaying = false;
-  let impactFrames = [null, null];
+  // 解析結果が出た時の描画処理
+  pose.onResults((results) => {
+    // キャンバスサイズを動画に合わせる
+    canvasElement.width = results.image.width;
+    canvasElement.height = results.image.height;
 
-  function drawStickCustom(ctx, lm, vidIdx, w, h) {
-    ctx.fillStyle = "#000"; ctx.fillRect(0, 0, w, h);
-    
-    const lSh = lm[11], rSh = lm[12], lHip = lm[23], rHip = lm[24];
-    const lWr = lm[15], lEl = lm[13]; // 利き手側（左想定）
+    canvasCtx.save();
+    canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
 
-    // 理論：独立性判定 (胸郭に対する肩甲帯の粘り)
-    const sep = Math.abs(Math.atan2(lHip.y-lSh.y, lHip.x-lSh.x) - Math.atan2(rSh.y-lSh.y, rSh.x-lSh.x));
-    const isIndy = sep > 1.48;
-
-    // スティック描画
-    drawConnectors(ctx, lm, POSE_CONNECTIONS, {color: '#222', lineWidth: 1});
-    
-    // 肩甲帯ライン（独立していれば青、突っ込めば赤）
-    ctx.beginPath();
-    ctx.moveTo(lSh.x*w, lSh.y*h); ctx.lineTo(rSh.x*w, rSh.y*h);
-    ctx.strokeStyle = isIndy ? "#00ffff" : "#ff3366";
-    ctx.lineWidth = 10; ctx.stroke();
-
-    // 腕の旋回（内外旋）
-    const armColor = lWr.x < lEl.x ? "#ffff00" : "#ff00ff";
-    drawConnectors(ctx, [lSh, lEl, lWr], [[0,1],[1,2]], {color: armColor, lineWidth: 6});
-
-    statuses[vidIdx].innerText = isIndy ? "肩甲帯：独立◎" : "肩甲帯：連動(突っ込み)";
-    statuses[vidIdx].style.color = isIndy ? "#00ffff" : "#ff3366";
-  }
-
-  async function processFrames() {
-    for (let i = 0; i < 2; i++) {
-      if (!videos[i].paused) {
-        await pose.send({image: videos[i]});
-        pose.onResults(results => {
-          if (results.poseLandmarks) {
-            canvases[i].width = results.image.width;
-            canvases[i].height = results.image.height;
-            drawStickCustom(canvases[i].getContext('2d'), results.poseLandmarks, i, canvases[i].width, canvases[i].height);
-          }
-        });
-      }
+    // 1. 動画を表示するか、真っ黒にするか
+    if (stickOnlyCheck.checked) {
+      canvasCtx.fillStyle = "#000";
+      canvasCtx.fillRect(0, 0, canvasElement.width, canvasElement.height);
+    } else {
+      canvasCtx.drawImage(results.image, 0, 0, canvasElement.width, canvasElement.height);
     }
-    if (isPlaying) requestAnimationFrame(processFrames);
+
+    // 2. 骨格（スティック）の描画
+    if (results.poseLandmarks) {
+      const lm = results.poseLandmarks;
+      
+      // 基本の線
+      drawConnectors(canvasCtx, lm, POSE_CONNECTIONS, {color: 'rgba(255,255,255,0.5)', lineWidth: 2});
+
+      // 肩甲帯（11-12）を強調
+      const lSh = lm[11], rSh = lm[12];
+      canvasCtx.beginPath();
+      canvasCtx.moveTo(lSh.x * canvasElement.width, lSh.y * canvasElement.height);
+      canvasCtx.lineTo(rSh.x * canvasElement.width, rSh.y * canvasElement.height);
+      canvasCtx.strokeStyle = "#00ffcc";
+      canvasCtx.lineWidth = 8;
+      canvasCtx.stroke();
+      
+      info.innerText = "解析中...";
+    }
+    canvasCtx.restore();
+  });
+
+  // 動画読み込み処理
+  document.getElementById('upload').addEventListener('change', function(e) {
+    const file = e.target.files[0];
+    if (!file) return;
+    
+    info.innerText = "読み込み中...";
+    const url = URL.createObjectURL(file);
+    videoElement.src = url;
+    
+    // 動画が読み込まれたら解析ループ開始
+    videoElement.onloadedmetadata = () => {
+      videoElement.play();
+      requestAnimationFrame(renderLoop);
+    };
+  });
+
+  async function renderLoop() {
+    if (!videoElement.paused && !videoElement.ended) {
+      await pose.send({image: videoElement});
+    }
+    requestAnimationFrame(renderLoop);
   }
 
-  function togglePlay() {
-    isPlaying = !isPlaying;
-    videos.forEach(v => isPlaying ? v.play() : v.pause());
-    if (isPlaying) processFrames();
+  function playVideo() {
+    if (videoElement.paused) {
+      videoElement.play();
+    } else {
+      videoElement.pause();
+    }
   }
-
-  function autoDetectImpact() {
-    // インパクト付近で一時停止する簡易ロジック
-    // 実際には手首の速度ピークを計算
-    alert("インパクト同期モード：最速フレームで自動停止します");
-  }
-
-  function changeSpeed(s) { videos.forEach(v => v.playbackRate = s); }
-  function resetAnalytic() { location.reload(); }
-
-  document.getElementById('up_0').onchange = e => videos[0].src = URL.createObjectURL(e.target.files[0]);
-  document.getElementById('up_1').onchange = e => videos[1].src = URL.createObjectURL(e.target.files[0]);
-  
-  slider.oninput = () => {
-    videos.forEach(v => v.currentTime = (slider.value / 100) * v.duration);
-    isPlaying = false;
-    togglePlay(); // 1フレーム更新用
-    setTimeout(togglePlay, 50);
-  };
 </script>
 </body>
 </html>
