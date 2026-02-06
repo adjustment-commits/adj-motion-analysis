@@ -3,43 +3,24 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <title>Kinetic Chain - Ultimate Analyzer</title>
+  <title>Kinetic Chain - Stable Ultimate</title>
+  
   <script src="https://cdn.jsdelivr.net/npm/@mediapipe/pose/pose.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
+
   <style>
-    /* 1. 画面フィット継承：dvhを使用してモバイルブラウザのバーに対応 */
-    html, body { 
-      margin: 0; padding: 0; width: 100%; height: 100dvh; 
-      overflow: hidden; background: #000; color: #fff; font-family: sans-serif;
-    }
+    html, body { margin: 0; padding: 0; width: 100%; height: 100dvh; overflow: hidden; background: #000; color: #fff; font-family: sans-serif; }
     #app-container { display: flex; flex-direction: column; width: 100%; height: 100dvh; }
-
-    /* 表示エリア：スクロールなしで最大化 */
-    .display-area { 
-      flex: 1; position: relative; display: flex; justify-content: center; 
-      align-items: center; overflow: hidden; min-height: 0;
-    }
+    .display-area { flex: 1; position: relative; display: flex; justify-content: center; align-items: center; overflow: hidden; min-height: 0; }
     canvas { max-width: 100%; max-height: 100%; object-fit: contain; z-index: 2; }
-
-    /* 操作パネル：高さを固定しUIを凝縮 */
-    .ui-panel { 
-      background: #151515; border-top: 1px solid #444; 
-      padding: 10px; flex-shrink: 0; z-index: 5;
-    }
+    .ui-panel { background: #151515; border-top: 1px solid #444; padding: 10px; flex-shrink: 0; z-index: 5; }
     .slider-row { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
     input[type="range"] { flex: 1; height: 30px; cursor: pointer; }
-
     .btn-row { display: flex; justify-content: center; gap: 4px; flex-wrap: wrap; }
-    button, label, select { 
-      background: #333; color: white; border: 1px solid #555; 
-      padding: 8px 10px; border-radius: 4px; font-size: 11px; cursor: pointer;
-    }
-
-    /* データ表示：バッジ形式 */
+    button, label, select { background: #333; color: white; border: 1px solid #555; padding: 8px 10px; border-radius: 4px; font-size: 11px; cursor: pointer; }
     .data-overlay { position: absolute; top: 10px; left: 10px; pointer-events: none; z-index: 10; }
-    .badge { 
-      background: rgba(0,0,0,0.8); padding: 5px 8px; margin-bottom: 3px; 
-      border-left: 4px solid #00ffcc; font-size: 11px;
-    }
+    .badge { background: rgba(0,0,0,0.8); padding: 5px 8px; margin-bottom: 3px; border-left: 4px solid #00ffcc; font-size: 11px; }
     #rec-btn { background: #d32f2f; border: none; font-weight: bold; }
     #rec-btn.active { background: #fff; color: #d32f2f; }
   </style>
@@ -50,9 +31,9 @@
   <div class="display-area">
     <canvas id="output_canvas"></canvas>
     <div class="data-overlay">
-      <div id="mode-badge" class="badge">MODE: 投球解析</div>
+      <div id="mode-badge" class="badge">準備完了：動画を選択してください</div>
       <div id="torsion-badge" class="badge">最大捻転差: --°</div>
-      <div id="trunk-badge" class="badge">胴体：解析中</div>
+      <div id="trunk-badge" class="badge">胴体：待機中</div>
       <div id="prediction-badge" class="badge" style="border-left-color:#ffcc00;">予測: -- km/h</div>
     </div>
   </div>
@@ -93,6 +74,7 @@
   let maxSep = 0, maxHipSpeed = 0, prevHipX = null, isSeeking = false;
   let mediaRecorder, recordedChunks = [];
 
+  // MediaPipe Pose の初期化
   const pose = new Pose({locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/pose/${file}`});
   pose.setOptions({ modelComplexity: 1, smoothLandmarks: true, minDetectionConfidence: 0.5 });
 
@@ -102,24 +84,24 @@
   }
 
   pose.onResults((results) => {
-    canvas.width = results.image.width;
-    canvas.height = results.image.height;
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    // 動画の解像度に合わせてキャンバスサイズを調整
+    if (results.image) {
+      canvas.width = results.image.width;
+      canvas.height = results.image.height;
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-    if (document.getElementById('view-mode').value === 'stick') {
-      ctx.fillStyle = "#000"; ctx.fillRect(0, 0, canvas.width, canvas.height);
-    } else {
-      ctx.drawImage(results.image, 0, 0, canvas.width, canvas.height);
+      if (document.getElementById('view-mode').value === 'stick') {
+        ctx.fillStyle = "#000"; ctx.fillRect(0, 0, canvas.width, canvas.height);
+      } else {
+        ctx.drawImage(results.image, 0, 0, canvas.width, canvas.height);
+      }
     }
 
     if (results.poseLandmarks) {
       const lm = results.poseLandmarks;
-      
-      // 中点計算
       const midSh = { x: (lm[11].x + lm[12].x) / 2, y: (lm[11].y + lm[12].y) / 2 };
       const midHip = { x: (lm[23].x + lm[24].x) / 2, y: (lm[23].y + lm[24].y) / 2 };
 
-      // 2. 並進・捻転（継承機能）
       if (prevHipX !== null && !video.paused && !isSeeking) {
         const s = Math.abs(midHip.x - prevHipX) / 0.033;
         if (s > maxHipSpeed) maxHipSpeed = s;
@@ -128,37 +110,30 @@
       const sep = Math.abs(Math.atan2(lm[23].y-lm[11].y, lm[23].x-lm[11].x) - Math.atan2(lm[12].y-lm[11].y, lm[12].x-lm[11].x));
       if (sep * 50 > maxSep) maxSep = sep * 50;
 
-      // 3. 描画サブ関数
       const drawSeg = (p1, p2, col, w) => {
         ctx.beginPath(); ctx.moveTo(p1.x*canvas.width, p1.y*canvas.height);
         ctx.lineTo(p2.x*canvas.width, p2.y*canvas.height);
         ctx.strokeStyle = col; ctx.lineWidth = w; ctx.lineCap = "round"; ctx.stroke();
       };
 
-      // 色判定ロジック（継承機能）
       const checkRot = (b, m, e) => e.x < m.x; 
       const isTrunkExt = lm[11].x > lm[23].x + 0.02;
 
-      // --- 全身セグメント描画（継承機能） ---
-      // 胴体
+      // 描画実行
       drawSeg(midSh, midHip, isTrunkExt ? "#00ffff" : "#ff3366", 15);
       drawSeg(lm[11], lm[12], isTrunkExt ? "#00ffff" : "#ff3366", 12);
-      // 腕
       drawSeg(lm[11], lm[13], checkRot(lm[11], lm[13], lm[15]) ? "#00ffff" : "#ff3366", 10);
       drawSeg(lm[13], lm[15], checkRot(lm[11], lm[13], lm[15]) ? "#00ffff" : "#ff3366", 7);
-      // 足
       drawSeg(lm[23], lm[25], lm[25].x > lm[23].x ? "#00ffff":"#ff3366", 12);
       drawSeg(lm[25], lm[27], lm[27].x > lm[25].x ? "#00ffff":"#ff3366", 9);
       drawSeg(lm[24], lm[26], lm[26].x < lm[24].x ? "#00ffff":"#ff3366", 12);
       drawSeg(lm[26], lm[28], lm[28].x < lm[26].x ? "#00ffff":"#ff3366", 9);
 
-      // --- 頭部トラッキング（継承機能） ---
       const earMid = { x: (lm[7].x + lm[8].x)/2, y: (lm[7].y + lm[8].y)/2 };
       const fDir = { x: lm[0].x + (lm[0].x - earMid.x)*1.5, y: lm[0].y + (lm[0].y - earMid.y)*1.5 };
-      drawSeg(lm[0], fDir, "#ffff00", 3); // つば
+      drawSeg(lm[0], fDir, "#ffff00", 3);
       ctx.beginPath(); ctx.arc(lm[0].x*canvas.width, lm[0].y*canvas.height, 4, 0, 7); ctx.fillStyle="#ffff00"; ctx.fill();
 
-      // 数値表示更新
       document.getElementById('torsion-badge').innerText = `最大捻転差: ${maxSep.toFixed(1)}°`;
       document.getElementById('trunk-badge').innerText = `胴体: ${isTrunkExt ? 'タメ(青)' : '開放(赤)'}`;
       const isP = analysisMode.value === 'pitching';
@@ -167,11 +142,10 @@
     }
   });
 
-  // 4. 高精度スライダークロージャ（継承機能）
+  // 操作系ロジック
   seekBar.oninput = () => { isSeeking = true; video.pause(); video.currentTime = seekBar.value; timeDisplay.innerText = video.currentTime.toFixed(1) + "s"; };
   seekBar.onchange = async () => { await pose.send({image: video}); isSeeking = false; };
 
-  // 5. 録画・エクスポート（継承機能）
   function toggleRecording() {
     if (mediaRecorder && mediaRecorder.state === "recording") {
       mediaRecorder.stop(); document.getElementById('rec-btn').classList.remove('active');
@@ -189,11 +163,31 @@
 
   function togglePlay() { video.paused ? video.play() : video.pause(); }
   function resetData() { maxSep = 0; maxHipSpeed = 0; }
+
+  // 動画アップロード時の処理
   document.getElementById('upload').onchange = (e) => {
-    video.src = URL.createObjectURL(e.target.files[0]);
-    video.onloadedmetadata = () => { seekBar.max = video.duration; requestAnimationFrame(renderLoop); };
+    const file = e.target.files[0];
+    if (file) {
+      video.src = URL.createObjectURL(file);
+      video.onloadedmetadata = () => {
+        seekBar.max = video.duration;
+        updateModeUI();
+        video.play(); // 自動再生を開始してAIを起動させる
+        requestAnimationFrame(renderLoop);
+      };
+    }
   };
-  async function renderLoop() { if (!video.paused) { await pose.send({image: video}); seekBar.value = video.currentTime; timeDisplay.innerText = video.currentTime.toFixed(1) + "s"; } requestAnimationFrame(renderLoop); }
+
+  async function renderLoop() {
+    if (!video.paused || isSeeking) {
+      await pose.send({image: video});
+      if (!isSeeking) {
+        seekBar.value = video.currentTime;
+        timeDisplay.innerText = video.currentTime.toFixed(1) + "s";
+      }
+    }
+    requestAnimationFrame(renderLoop);
+  }
 </script>
 </body>
 </html>
