@@ -3,27 +3,47 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <title>Kinetic Linkage Pro</title>
+  <title>Stable Coach Linkage</title>
   <script src="https://cdn.jsdelivr.net/npm/@mediapipe/pose/pose.js"></script>
   <style>
-    /* iPadセーフエリア設定 */
-    :root { --safe-padding: 80px; } 
-    html, body { margin: 0; padding: 0; width: 100%; height: 100dvh; overflow: hidden; background: #000; color: #fff; font-family: sans-serif; }
-    #app-container { display: flex; flex-direction: column; width: 100%; height: 100dvh; }
+    /* 画面全体を固定（スクロール禁止） */
+    html, body { 
+      margin: 0; padding: 0; width: 100%; height: 100%; 
+      overflow: hidden; background: #000; position: fixed; 
+    }
     
-    .display-area { flex: 1; position: relative; background: #000; display: flex; justify-content: center; align-items: center; }
-    canvas { max-width: 100%; max-height: 100%; object-fit: contain; z-index: 2; }
-    
-    /* 上部ステータス */
-    .data-overlay { position: absolute; top: 20px; left: 20px; pointer-events: none; z-index: 10; }
-    .badge { background: rgba(0,0,0,0.8); padding: 10px 15px; border-left: 5px solid #00ffcc; font-size: 15px; margin-bottom: 5px; }
+    #app-container { 
+      position: relative; width: 100vw; height: 100vh; 
+      display: flex; flex-direction: column; 
+    }
 
-    /* 下部操作パネル */
-    .ui-panel { background: #111; border-top: 1px solid #333; padding: 15px 25px var(--safe-padding); flex-shrink: 0; }
-    .slider-row { display: flex; align-items: center; gap: 15px; margin-bottom: 20px; }
+    /* 描画エリア：ボタンの高さを引いた分だけ確保 */
+    .display-area { 
+      flex: 1; width: 100%; background: #000; 
+      display: flex; justify-content: center; align-items: center; 
+    }
+    canvas { max-width: 100%; max-height: 100%; object-fit: contain; }
+
+    /* 下部操作パネル：位置を完全に固定 */
+    .ui-panel { 
+      height: 220px; /* 高さを固定 */
+      background: #111; border-top: 1px solid #333; 
+      padding: 10px 20px 40px 20px; /* iPadホームバーの予備余白 */
+      box-sizing: border-box;
+    }
+
+    .slider-row { display: flex; align-items: center; gap: 15px; margin-bottom: 15px; }
     input[type="range"] { flex: 1; height: 44px; accent-color: #00ffcc; }
-    .btn-row { display: flex; justify-content: space-around; gap: 10px; flex-wrap: wrap; }
-    button, label, select { background: #2a2a2a; color: white; border: 1px solid #444; padding: 15px 10px; border-radius: 8px; font-size: 14px; font-weight: bold; flex: 1; text-align: center; }
+    #time-display { font-family: monospace; font-size: 18px; color: #00ffcc; min-width: 60px; }
+
+    .btn-row { display: flex; gap: 10px; height: 60px; }
+    button, label, select { 
+      background: #252525; color: white; border: 1px solid #444; 
+      border-radius: 10px; font-size: 14px; font-weight: bold; 
+      flex: 1; display: flex; justify-content: center; align-items: center;
+      -webkit-appearance: none;
+    }
+    button:active, label:active { background: #444; }
   </style>
 </head>
 <body>
@@ -31,24 +51,21 @@
 <div id="app-container">
   <div class="display-area">
     <canvas id="output_canvas"></canvas>
-    <div class="data-overlay">
-      <div id="mode-badge" class="badge">PITCHING MODE</div>
-      <div id="trunk-badge" class="badge">胸郭ボックス: 解析中</div>
-      <div id="arm-badge" class="badge">腕: 判定中</div>
-    </div>
   </div>
 
   <div class="ui-panel">
     <div class="slider-row">
-      <span id="time-val" style="min-width:60px;">0.00s</span>
+      <span id="time-display">0.00s</span>
       <input type="range" id="seek-bar" value="0" step="0.001">
     </div>
     <div class="btn-row">
-      <label for="upload">📹 VIDEO<input type="file" id="upload" accept="video/*" style="display:none"></label>
-      <select id="analysis-mode"><option value="pitch">投球解析</option><option value="bat">打撃解析</option></select>
-      <select id="view-mode"><option value="both">実写+骨格</option><option value="stick">骨格のみ</option></select>
+      <label for="upload">📹動画<input type="file" id="upload" accept="video/*" style="display:none"></label>
+      <select id="view-mode">
+        <option value="both">実写＋骨格</option>
+        <option value="stick">骨格のみ</option>
+      </select>
       <button onclick="video.paused ? video.play() : video.pause()">▷/||</button>
-      <button onclick="video.playbackRate = (video.playbackRate === 0.25 ? 1.0 : 0.25)">SLOW</button>
+      <button id="slow-btn" onclick="toggleSlow()">SLOW</button>
     </div>
   </div>
 </div>
@@ -60,8 +77,6 @@
   const canvas = document.getElementById('output_canvas');
   const ctx = canvas.getContext('2d');
   const seekBar = document.getElementById('seek-bar');
-  const timeVal = document.getElementById('time-val');
-  const analysisMode = document.getElementById('analysis-mode');
   const viewMode = document.getElementById('view-mode');
 
   const pose = new Pose({locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/pose/${file}`});
@@ -73,74 +88,75 @@
     canvas.height = results.image.height;
     ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-    if (viewMode.value === 'stick') {
-      ctx.fillStyle = "#000"; ctx.fillRect(0, 0, canvas.width, canvas.height);
-    } else {
+    if (viewMode.value !== 'stick') {
       ctx.drawImage(results.image, 0, 0, canvas.width, canvas.height);
+    } else {
+      ctx.fillStyle = "#000"; ctx.fillRect(0, 0, canvas.width, canvas.height);
     }
 
     if (results.poseLandmarks) {
       const lm = results.poseLandmarks;
-      const shL = lm[11], shR = lm[12], hipL = lm[23], hipR = lm[24];
-      const elR = lm[14], wrR = lm[16], elL = lm[13], wrL = lm[15];
-      const kneeR = lm[26], ankR = lm[28], kneeL = lm[25], ankL = lm[27];
-
-      const drawL = (p1, p2, col, w, glow=false) => {
+      const draw = (p1, p2, col, w, glow=false) => {
         ctx.beginPath();
-        if(glow) { ctx.shadowBlur = 10; ctx.shadowColor = col; }
-        ctx.moveTo(p1.x*canvas.width, p1.y*canvas.height); ctx.lineTo(p2.x*canvas.width, p2.y*canvas.height);
-        ctx.strokeStyle = col; ctx.lineWidth = w; ctx.lineCap = "round"; ctx.stroke(); ctx.shadowBlur = 0;
+        if(glow){ ctx.shadowBlur=10; ctx.shadowColor=col; }
+        ctx.moveTo(p1.x*canvas.width, p1.y*canvas.height);
+        ctx.lineTo(p2.x*canvas.width, p2.y*canvas.height);
+        ctx.strokeStyle = col; ctx.lineWidth = w; ctx.lineCap = "round"; ctx.stroke();
+        ctx.shadowBlur=0;
       };
 
       // 1. 胸郭ボックス
       ctx.beginPath();
-      ctx.moveTo(shL.x*canvas.width, shL.y*canvas.height); ctx.lineTo(shR.x*canvas.width, shR.y*canvas.height);
-      ctx.lineTo(hipR.x*canvas.width, hipR.y*canvas.height); ctx.lineTo(hipL.x*canvas.width, hipL.y*canvas.height);
+      ctx.moveTo(lm[11].x*canvas.width, lm[11].y*canvas.height);
+      ctx.lineTo(lm[12].x*canvas.width, lm[12].y*canvas.height);
+      ctx.lineTo(lm[24].x*canvas.width, lm[24].y*canvas.height);
+      ctx.lineTo(lm[23].x*canvas.width, lm[23].y*canvas.height);
       ctx.closePath();
-      ctx.fillStyle = "rgba(255,255,255,0.2)"; ctx.fill();
-      ctx.strokeStyle = "#fff"; ctx.lineWidth = 2; ctx.stroke();
+      ctx.fillStyle = "rgba(255,255,255,0.15)"; ctx.fill();
+      ctx.strokeStyle = "#fff"; ctx.lineWidth = 1; ctx.stroke();
 
-      // 2. パワーツリー連動（軸足から投球肩）
-      drawL(ankR, kneeR, "#00ffcc", 10, true); drawL(kneeR, hipR, "#00ffcc", 10, true);
-      drawL(hipR, shR, "#ffffff", 4);
+      // 2. パワーツリー（軸足から投球肩）
+      draw(lm[28], lm[26], "#00ffcc", 10, true); // 足首-膝
+      draw(lm[26], lm[24], "#00ffcc", 10, true); // 膝-股関節
+      draw(lm[24], lm[12], "#ffffff", 1.5);      // 軸から投球肩への一本線
 
-      // 3. 改良版 内外旋判定 (腕としなりの解析)
-      // 投球腕：肩と肘のラインに対して手首が背中側（外旋）か前（内旋）か
-      const isPitchMode = analysisMode.value === 'pitch';
-      const armCondition = isPitchMode ? (wrR.x < elR.x + 0.05) : (wrR.x < shR.x); 
-      const armCol = armCondition ? "#00e5ff" : "#ff3366";
-      drawL(shR, elR, armCol, 14); drawL(elR, wrR, armCol, 10);
+      // 3. 投球腕：しなりの色（外旋=青 / 内旋=赤）
+      // 肘より手首が背中側（x座標が小さい ※右投げ想定）なら青
+      const isExternal = lm[16].x < lm[14].x + 0.05;
+      const rArmCol = isExternal ? "#00e5ff" : "#ff3366";
+      draw(lm[12], lm[14], rArmCol, 12); draw(lm[14], lm[16], rArmCol, 8);
 
-      // グラブ腕
-      const grabCol = (wrL.x < elL.x) ? "#ff3366" : "#00e5ff";
-      drawL(shL, elL, grabCol, 10); drawL(elL, wrL, grabCol, 6);
-
-      // 足の連動
-      drawL(hipL, kneeL, (kneeL.x > hipL.x ? "#00e5ff" : "#ff3366"), 12);
-      drawL(kneeL, ankL, (ankL.x > kneeL.x ? "#00e5ff" : "#ff3366"), 10);
-
-      // 4. 表示更新
-      document.getElementById('mode-badge').innerText = isPitchMode ? "PITCHING MODE" : "BATTING MODE";
-      document.getElementById('trunk-badge').innerText = `胸郭: ${Math.abs(shR.x-shL.x) > 0.15 ? '正面' : '半身'}`;
-      document.getElementById('arm-badge').innerText = `腕: ${armCondition ? '外旋（タメ）' : '内旋（リリース）'}`;
-      document.getElementById('arm-badge').style.borderLeftColor = armCol;
+      // グラブ腕・脚
+      draw(lm[11], lm[13], "#888", 6); draw(lm[13], lm[15], "#888", 4);
+      draw(lm[23], lm[25], "#00e5ff", 10); draw(lm[25], lm[27], "#00e5ff", 8);
     }
   });
 
-  // UI制御
+  function toggleSlow() {
+    video.playbackRate = video.playbackRate === 1.0 ? 0.25 : 1.0;
+    const btn = document.getElementById('slow-btn');
+    btn.style.background = video.playbackRate === 0.25 ? "#00ffcc" : "#252525";
+    btn.style.color = video.playbackRate === 0.25 ? "#000" : "#fff";
+  }
+
   seekBar.oninput = () => { video.pause(); video.currentTime = seekBar.value; };
   document.getElementById('upload').onchange = (e) => {
     const file = e.target.files[0];
     if (file) {
       video.src = URL.createObjectURL(file);
-      video.onloadedmetadata = () => { seekBar.max = video.duration; video.play(); render(); };
+      video.onloadedmetadata = () => { 
+        seekBar.max = video.duration; 
+        video.play(); 
+        requestAnimationFrame(render); 
+      };
     }
   };
+
   async function render() {
     if (!video.paused || video.currentTime >= 0) {
       await pose.send({image: video});
       seekBar.value = video.currentTime;
-      timeVal.innerText = video.currentTime.toFixed(2) + "s";
+      document.getElementById('time-display').innerText = video.currentTime.toFixed(2) + "s";
     }
     requestAnimationFrame(render);
   }
