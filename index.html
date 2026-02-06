@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-  <title>Kinetic Pro Precision</title>
+  <title>Kinetic Pro - Full Body</title>
   <script src="https://cdn.jsdelivr.net/npm/@mediapipe/pose/pose.js"></script>
   <style>
     html, body { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; background: #000; color: #fff; font-family: sans-serif; }
@@ -14,14 +14,12 @@
     canvas { max-width: 100%; max-height: 100%; object-fit: contain; }
     .deck { height: 360px; background: #111; border-top: 2px solid #444; padding: 15px 20px 100px 20px; box-sizing: border-box; flex-shrink: 0; }
     
-    /* スライダー周りの強化 */
     .slider-row { display: flex; align-items: center; gap: 15px; margin-bottom: 15px; }
     .play-trigger { width: 70px; height: 70px; border-radius: 50%; background: #00ffcc; color: #000; border: none; font-size: 32px; flex-shrink: 0; }
     .seek-box { flex: 1; }
     .time-txt { color: #00ffcc; font-family: monospace; font-size: 18px; font-weight: bold; margin-bottom: 5px; }
     input[type="range"] { width: 100%; height: 45px; accent-color: #00ffcc; cursor: pointer; }
 
-    /* 微調整ボタン */
     .btn-row { display: flex; gap: 8px; margin-bottom: 8px; }
     .f-btn { flex: 1; height: 50px; background: #2a2a2a; color: #fff; border: 1px solid #555; border-radius: 10px; font-weight: bold; font-size: 14px; }
     .step-btn { background: #444; color: #00ffcc; flex: 0.5; }
@@ -29,18 +27,30 @@
     .rec-active { background: #ff3366 !important; color: #fff !important; animation: blink 1s infinite; }
     .slow-active { background: #ffaa00 !important; color: #000 !important; }
     @keyframes blink { 0% { opacity: 1; } 50% { opacity: 0.7; } 100% { opacity: 1; } }
+    
+    /* バッジエリア：足を4つ並べるために微調整 */
     .tags { position: absolute; top: 15px; left: 15px; pointer-events: none; }
-    .badge { background: rgba(0,0,0,0.8); padding: 6px 12px; border-radius: 4px; font-size: 12px; margin-bottom: 4px; border-left: 4px solid #00ffcc; }
+    .badge { background: rgba(0,0,0,0.8); padding: 5px 10px; border-radius: 4px; font-size: 11px; margin-bottom: 4px; border-left: 4px solid #00ffcc; min-width: 80px; }
+    .b-arm { border-left-color: #ffaa00; }
+    .b-leg { border-left-color: #00ffcc; }
   </style>
 </head>
 <body>
 <div id="layout">
   <div class="header">
     <label class="top-btn">📹 動画選択<input type="file" id="up" accept="video/*" style="display:none"></label>
-    <select id="md" class="top-btn"><option value="pitch">投球</option><option value="bat">打撃</option></select>
+    <select id="md" class="top-btn"><option value="pitch">投球モード</option><option value="bat">打撃モード</option></select>
     <select id="vw" class="top-btn"><option value="both">実写＋骨格</option><option value="stick">骨格のみ</option></select>
   </div>
-  <div class="main-view"><canvas id="cv"></canvas><div class="tags"><div id="r-txt" class="badge">右: --</div><div id="l-txt" class="badge">左: --</div></div></div>
+  <div class="main-view">
+    <canvas id="cv"></canvas>
+    <div class="tags">
+      <div id="r-txt" class="badge b-arm">右腕: --</div>
+      <div id="l-txt" class="badge b-arm">左腕: --</div>
+      <div id="rk-txt" class="badge b-leg">右足: --</div>
+      <div id="lk-txt" class="badge b-leg">左足: --</div>
+    </div>
+  </div>
   <div class="deck">
     <div class="slider-row">
       <button class="play-trigger" id="pp">▶</button>
@@ -68,45 +78,60 @@
   const pose = new Pose({locateFile: (f) => `https://cdn.jsdelivr.net/npm/@mediapipe/pose/${f}`});
   pose.setOptions({modelComplexity: 1, smoothLandmarks: true, minDetectionConfidence: 0.5, minTrackingConfidence: 0.5});
 
+  // 3点の座標から角度を計算する関数
+  function getAngle(p1, p2, p3) {
+    const a = Math.sqrt(Math.pow(p2.x-p3.x,2) + Math.pow(p2.y-p3.y,2));
+    const b = Math.sqrt(Math.pow(p1.x-p3.x,2) + Math.pow(p1.y-p3.y,2));
+    const c = Math.sqrt(Math.pow(p1.x-p2.x,2) + Math.pow(p1.y-p2.y,2));
+    return Math.acos((Math.pow(a,2) + Math.pow(c,2) - Math.pow(b,2)) / (2*a*c)) * (180/Math.PI);
+  }
+
   pose.onResults((r) => {
     if (!r.image) return;
     cv.width = r.image.width; cv.height = r.image.height;
     ctx.clearRect(0, 0, cv.width, cv.height);
     if (document.getElementById('vw').value !== 'stick') ctx.drawImage(r.image, 0, 0, cv.width, cv.height);
+    
     if (r.poseLandmarks) {
       const lm = r.poseLandmarks;
       const draw = (p1, p2, col, w) => {
         ctx.beginPath(); ctx.moveTo(p1.x * cv.width, p1.y * cv.height); ctx.lineTo(p2.x * cv.width, p2.y * cv.height);
         ctx.strokeStyle = col; ctx.lineWidth = w; ctx.lineCap = "round"; ctx.stroke();
       };
+
+      // 体幹（白枠）
       ctx.beginPath(); ctx.moveTo(lm[11].x * cv.width, lm[11].y * cv.height); ctx.lineTo(lm[12].x * cv.width, lm[12].y * cv.height);
       ctx.lineTo(lm[24].x * cv.width, lm[24].y * cv.height); ctx.lineTo(lm[23].x * cv.width, lm[23].y * cv.height);
       ctx.closePath(); ctx.fillStyle = "rgba(255, 255, 255, 0.2)"; ctx.fill(); ctx.strokeStyle = "#ffffff"; ctx.lineWidth = 2; ctx.stroke();
+
       const isP = document.getElementById('md').value === 'pitch';
-      const rExt = isP ? (lm[16].x < lm[14].x + 0.05) : (lm[16].y > lm[14].y);
-      const rCol = rExt ? "#00e5ff" : "#ff3366";
-      draw(lm[12], lm[14], rCol, 12); draw(lm[14], lm[16], rCol, 8);
-      document.getElementById('r-txt').innerText = `右: ${rExt ? 'タメ' : '解放'}`;
-      const lExt = isP ? (lm[15].x > lm[13].x - 0.05) : (lm[15].y > lm[13].y);
-      const lCol = lExt ? "#00e5ff" : "#ff3366";
-      draw(lm[11], lm[13], lCol, 12); draw(lm[13], lm[15], lCol, 8);
-      document.getElementById('l-txt').innerText = `左: ${lExt ? 'タメ' : '解放'}`;
-      draw(lm[24], lm[26], "#00ffcc", 10); draw(lm[26], lm[28], "#00ffcc", 10);
-      draw(lm[23], lm[25], "#00ffcc", 10); draw(lm[25], lm[27], "#00ffcc", 10);
+
+      // --- 腕の判定 ---
+      const rArmExt = isP ? (lm[16].x < lm[14].x + 0.05) : (lm[16].y > lm[14].y);
+      const lArmExt = isP ? (lm[15].x > lm[13].x - 0.05) : (lm[15].y > lm[13].y);
+      draw(lm[12], lm[14], rArmExt ? "#00e5ff" : "#ff3366", 12); draw(lm[14], lm[16], rArmExt ? "#00e5ff" : "#ff3366", 8);
+      draw(lm[11], lm[13], lArmExt ? "#00e5ff" : "#ff3366", 12); draw(lm[13], lm[15], lArmExt ? "#00e5ff" : "#ff3366", 8);
+      document.getElementById('r-txt').innerText = `右腕: ${rArmExt ? 'タメ(伸張)' : '解放(反射)'}`;
+      document.getElementById('l-txt').innerText = `左腕: ${lArmExt ? 'タメ(伸張)' : '解放(反射)'}`;
+
+      // --- 足（膝）の判定 ---
+      // 膝の角度を取得 (股関節-膝-足首)
+      const rKneeAngle = getAngle(lm[24], lm[26], lm[28]);
+      const lKneeAngle = getAngle(lm[23], lm[25], lm[27]);
+      
+      // 160度以上伸びていたら「解放」、それ以下なら「タメ」
+      const rKneeExt = rKneeAngle < 160; 
+      const lKneeExt = lKneeAngle < 160;
+
+      draw(lm[24], lm[26], rKneeExt ? "#00ffcc" : "#ff3366", 10); draw(lm[26], lm[28], rKneeExt ? "#00ffcc" : "#ff3366", 10);
+      draw(lm[23], lm[25], lKneeExt ? "#00ffcc" : "#ff3366", 10); draw(lm[25], lm[27], lKneeExt ? "#00ffcc" : "#ff3366", 10);
+      
+      document.getElementById('rk-txt').innerText = `右足: ${rKneeExt ? 'タメ(伸張)' : '解放(反射)'}`;
+      document.getElementById('lk-txt').innerText = `左足: ${lKneeExt ? 'タメ(伸張)' : '解放(反射)'}`;
     }
   });
 
-  async function stream() { 
-    if (!vd.paused || seeking) { 
-      await pose.send({image: vd}); 
-      if (!seeking) { 
-        sk.value = vd.currentTime; 
-        document.getElementById('cn').innerText = vd.currentTime.toFixed(2); 
-      } 
-    } 
-    requestAnimationFrame(stream); 
-  }
-
+  async function stream() { if (!vd.paused || seeking) { await pose.send({image: vd}); if (!seeking) { sk.value = vd.currentTime; document.getElementById('cn').innerText = vd.currentTime.toFixed(2); } } requestAnimationFrame(stream); }
   sk.oninput = () => { seeking = true; vd.currentTime = sk.value; document.getElementById('cn').innerText = parseFloat(sk.value).toFixed(2); };
   sk.onpointerup = () => { seeking = false; };
   pp.onclick = () => { if (vd.paused) { vd.play(); pp.innerText = "‖"; } else { vd.pause(); pp.innerText = "▶"; } };
@@ -126,7 +151,6 @@
     if (file) { vd.src = URL.createObjectURL(file); vd.onloadedmetadata = () => { sk.max = vd.duration; document.getElementById('tn').innerText = vd.duration.toFixed(2); vd.play(); pp.innerText = "‖"; stream(); }; }
   };
 
-  // --- 保存の修正 ---
   function toggleRec() {
     const btn = document.getElementById('recBtn');
     if (!recorder || recorder.state === 'inactive') {
@@ -137,20 +161,10 @@
       recorder.onstop = async () => {
         const blob = new Blob(chunks, { type: 'video/mp4' });
         const url = URL.createObjectURL(blob);
-        
-        // iPad Safariで確実にダウンロードダイアログを出すための処理
         const a = document.createElement('a');
-        a.href = url;
-        a.download = `analysis_${Date.now()}.mp4`;
-        a.style.display = 'none';
-        document.body.appendChild(a);
-        a.click();
-        
-        setTimeout(() => {
-            document.body.removeChild(a);
-            window.URL.revokeObjectURL(url);
-            alert("iPadの右上の『↓』マークをタップし、ファイルを開いて『ビデオを保存』を押すとカメラロールに入ります。");
-        }, 1000);
+        a.href = url; a.download = `kinetic_${Date.now()}.mp4`;
+        a.style.display = 'none'; document.body.appendChild(a); a.click();
+        setTimeout(() => { document.body.removeChild(a); window.URL.revokeObjectURL(url); alert("保存完了！『ビデオを保存』してください。"); }, 1000);
       };
       recorder.start(100);
       btn.innerText = "■ 書き出しを終了"; btn.classList.add('rec-active');
