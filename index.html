@@ -114,15 +114,34 @@
     if (!recorder || recorder.state === 'inactive') {
       chunks = [];
       const streamCanvas = cv.captureStream(25);
-      recorder = new MediaRecorder(streamCanvas, { mimeType: 'video/webm' });
+      
+      // iPad/Safariで最も互換性が高い設定
+      const options = { mimeType: 'video/webm;codecs=vp8' }; 
+      recorder = new MediaRecorder(streamCanvas, options);
+      
       recorder.ondataavailable = (e) => { if (e.data && e.data.size > 0) chunks.push(e.data); };
-      recorder.onstop = () => {
+      
+      recorder.onstop = async () => {
+        // 保存時にmp4として認識させる
         const blob = new Blob(chunks, { type: 'video/mp4' });
         const url = URL.createObjectURL(blob);
-        const a = document.createElement('a'); a.href = url; a.download = `kinetic_${Date.now()}.mp4`;
-        document.body.appendChild(a); a.click(); document.body.removeChild(a);
-        URL.revokeObjectURL(url);
+        
+        // iPad用のダウンロード処理
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `kinetic_analysis_${Date.now()}.mp4`;
+        document.body.appendChild(a);
+        a.click();
+        
+        // 少し遅延させてから削除（iPadの処理待ち対策）
+        setTimeout(() => {
+          document.body.removeChild(a);
+          window.URL.revokeObjectURL(url);
+        }, 500);
+        
+        alert("ダウンロードが完了しました。ファイルアプリから『ビデオを保存』を選択してカメラロールに移動してください。");
       };
+      
       recorder.start(100);
       btn.innerText = "■ 書き出しを終了"; btn.classList.add('rec-active');
     } else {
@@ -130,8 +149,7 @@
       btn.innerText = "● 解析動画を書き出し"; btn.classList.remove('rec-active');
     }
   }
-
-  document.getElementById('up').onchange = (e) => { const file = e.target.files[0]; if (file) { vd.src = URL.createObjectURL(file); vd.onloadedmetadata = () => { sk.max = vd.duration; document.getElementById('tn').innerText = vd.duration.toFixed(2); vd.play(); pp.innerText = "‖"; stream(); }; } };
 </script>
+
 </body>
 </html>
