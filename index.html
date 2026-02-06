@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-  <title>Kinetic Pro Full Body</title>
+  <title>Kinetic Pro - Final</title>
   <script src="https://cdn.jsdelivr.net/npm/@mediapipe/pose/pose.js"></script>
   <style>
     html, body { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; background: #000; color: #fff; font-family: sans-serif; }
@@ -12,23 +12,24 @@
     .top-btn { flex: 1; height: 45px; background: #333; color: #fff; border: 1px solid #555; border-radius: 8px; font-weight: bold; font-size: 14px; display: flex; align-items: center; justify-content: center; }
     .main-view { flex: 1; position: relative; min-height: 0; display: flex; justify-content: center; align-items: center; }
     canvas { max-width: 100%; max-height: 100%; object-fit: contain; }
-    .deck { height: 360px; background: #111; border-top: 2px solid #444; padding: 15px 20px 100px 20px; box-sizing: border-box; flex-shrink: 0; }
+    
+    .deck { height: 400px; background: #111; border-top: 2px solid #444; padding: 15px 20px 100px 20px; box-sizing: border-box; flex-shrink: 0; }
+    
+    /* 保存リンクのスタイル */
+    #save-area { display: none; background: #00ffcc; color: #000; padding: 15px; border-radius: 10px; text-align: center; font-weight: bold; margin-bottom: 15px; text-decoration: none; font-size: 18px; }
+
     .slider-row { display: flex; align-items: center; gap: 15px; margin-bottom: 15px; }
     .play-trigger { width: 70px; height: 70px; border-radius: 50%; background: #00ffcc; color: #000; border: none; font-size: 32px; flex-shrink: 0; }
     .seek-box { flex: 1; }
     .time-txt { color: #00ffcc; font-family: monospace; font-size: 18px; font-weight: bold; margin-bottom: 5px; }
-    input[type="range"] { width: 100%; height: 45px; accent-color: #00ffcc; cursor: pointer; }
+    input[type="range"] { width: 100%; height: 45px; accent-color: #00ffcc; }
     .btn-row { display: flex; gap: 8px; margin-bottom: 8px; }
     .f-btn { flex: 1; height: 50px; background: #2a2a2a; color: #fff; border: 1px solid #555; border-radius: 10px; font-weight: bold; font-size: 14px; }
-    .step-btn { background: #444; color: #00ffcc; flex: 0.5; }
     .rec-btn { background: #333; color: #00ffcc; border: 2px solid #00ffcc; height: 60px; font-size: 16px; }
     .rec-active { background: #ff3366 !important; color: #fff !important; animation: blink 1s infinite; }
-    .slow-active { background: #ffaa00 !important; color: #000 !important; }
     @keyframes blink { 0% { opacity: 1; } 50% { opacity: 0.7; } 100% { opacity: 1; } }
     .tags { position: absolute; top: 15px; left: 15px; pointer-events: none; }
     .badge { background: rgba(0,0,0,0.8); padding: 5px 10px; border-radius: 4px; font-size: 11px; margin-bottom: 4px; border-left: 4px solid #00ffcc; min-width: 80px; }
-    .b-arm { border-left-color: #ffaa00; }
-    .b-leg { border-left-color: #00ffcc; }
   </style>
 </head>
 <body>
@@ -41,28 +42,28 @@
   <div class="main-view">
     <canvas id="cv"></canvas>
     <div class="tags">
-      <div id="r-txt" class="badge b-arm">右腕: --</div>
-      <div id="l-txt" class="badge b-arm">左腕: --</div>
-      <div id="rk-txt" class="badge b-leg">右足: --</div>
-      <div id="lk-txt" class="badge b-leg">左足: --</div>
+      <div id="r-txt" class="badge">右腕: --</div><div id="l-txt" class="badge">左腕: --</div>
+      <div id="rk-txt" class="badge">右足: --</div><div id="lk-txt" class="badge">左足: --</div>
     </div>
   </div>
   <div class="deck">
+    <a id="save-area" href="#" target="_blank">📲 解析動画が完成！ここをタップして保存</a>
+    
     <div class="slider-row">
       <button class="play-trigger" id="pp">▶</button>
       <div class="seek-box">
         <div class="time-txt"><span id="cn">0.00</span> / <span id="tn">0.00</span>s</div>
-        <input type="range" id="sk" value="0" step="0.0001">
+        <input type="range" id="sk" value="0" step="0.001">
       </div>
     </div>
     <div class="btn-row">
-      <button class="f-btn step-btn" onclick="jump(-0.01)">-0.01s</button>
+      <button class="f-btn" onclick="jump(-0.01)">-0.01</button>
       <button class="f-btn" onclick="jump(-0.033)">◀ 戻す</button>
       <button class="f-btn" id="sl" onclick="slow()">SLOW (1x)</button>
       <button class="f-btn" onclick="jump(0.033)">送る ▶</button>
-      <button class="f-btn step-btn" onclick="jump(0.01)">+0.01s</button>
+      <button class="f-btn" onclick="jump(0.01)">+0.01</button>
     </div>
-    <div class="btn-row"><button id="recBtn" class="f-btn rec-btn" onclick="toggleRec()">● 解析動画を保存用に生成</button></div>
+    <div class="btn-row"><button id="recBtn" class="f-btn rec-btn" onclick="toggleRec()">● 解析動画を書き出し</button></div>
   </div>
 </div>
 <video id="vd" playsinline muted style="display:none"></video>
@@ -99,38 +100,29 @@
       const lArmExt = isP ? (lm[15].x > lm[13].x - 0.05) : (lm[15].y > lm[13].y);
       draw(lm[12], lm[14], rArmExt ? "#00e5ff" : "#ff3366", 12); draw(lm[14], lm[16], rArmExt ? "#00e5ff" : "#ff3366", 8);
       draw(lm[11], lm[13], lArmExt ? "#00e5ff" : "#ff3366", 12); draw(lm[13], lm[15], lArmExt ? "#00e5ff" : "#ff3366", 8);
-      document.getElementById('r-txt').innerText = `右腕: ${rArmExt ? 'タメ(伸張)' : '解放(反射)'}`;
-      document.getElementById('l-txt').innerText = `左腕: ${lArmExt ? 'タメ(伸張)' : '解放(反射)'}`;
+      document.getElementById('r-txt').innerText = `右腕: ${rArmExt ? 'タメ' : '解放'}`;
+      document.getElementById('l-txt').innerText = `左腕: ${lArmExt ? 'タメ' : '解放'}`;
 
       // 足
-      const rKneeAngle = getAngle(lm[24], lm[26], lm[28]);
-      const lKneeAngle = getAngle(lm[23], lm[25], lm[27]);
-      const rKneeExt = rKneeAngle < 160; 
-      const lKneeExt = lKneeAngle < 160;
-      draw(lm[24], lm[26], rKneeExt ? "#00ffcc" : "#ff3366", 10); draw(lm[26], lm[28], rKneeExt ? "#00ffcc" : "#ff3366", 10);
-      draw(lm[23], lm[25], lKneeExt ? "#00ffcc" : "#ff3366", 10); draw(lm[25], lm[27], lKneeExt ? "#00ffcc" : "#ff3366", 10);
-      document.getElementById('rk-txt').innerText = `右足: ${rKneeExt ? 'タメ(伸張)' : '解放(反射)'}`;
-      document.getElementById('lk-txt').innerText = `左足: ${lKneeExt ? 'タメ(伸張)' : '解放(反射)'}`;
+      const rK = getAngle(lm[24], lm[26], lm[28]), lK = getAngle(lm[23], lm[25], lm[27]);
+      const rLegExt = rK < 160, lLegExt = lK < 160;
+      draw(lm[24], lm[26], rLegExt ? "#00ffcc" : "#ff3366", 10); draw(lm[26], lm[28], rLegExt ? "#00ffcc" : "#ff3366", 10);
+      draw(lm[23], lm[25], lLegExt ? "#00ffcc" : "#ff3366", 10); draw(lm[25], lm[27], lLegExt ? "#00ffcc" : "#ff3366", 10);
+      document.getElementById('rk-txt').innerText = `右足: ${rLegExt ? 'タメ' : '解放'}`;
+      document.getElementById('lk-txt').innerText = `左足: ${lLegExt ? 'タメ' : '解放'}`;
     }
   });
 
   async function stream() { if (!vd.paused || seeking) { await pose.send({image: vd}); if (!seeking) { sk.value = vd.currentTime; document.getElementById('cn').innerText = vd.currentTime.toFixed(2); } } requestAnimationFrame(stream); }
-  
-  // スライダー精度向上
   sk.oninput = () => { seeking = true; vd.currentTime = sk.value; document.getElementById('cn').innerText = parseFloat(sk.value).toFixed(2); };
   sk.onchange = () => { seeking = false; };
-  sk.onpointerup = () => { seeking = false; };
-
   pp.onclick = () => { if (vd.paused) { vd.play(); pp.innerText = "‖"; } else { vd.pause(); pp.innerText = "▶"; } };
   function jump(d) { vd.currentTime += d; seeking = true; setTimeout(() => { seeking = false; }, 50); }
 
   function slow() {
-    const btn = document.getElementById('sl');
-    let rates = [1.0, 0.25, 0.1];
-    let next = rates[(rates.indexOf(vd.playbackRate) + 1) % rates.length];
-    vd.playbackRate = next;
-    btn.innerText = `SLOW (${next}x)`;
-    next < 1.0 ? btn.classList.add('slow-active') : btn.classList.remove('slow-active');
+    const rates = [1.0, 0.25, 0.1];
+    vd.playbackRate = rates[(rates.indexOf(vd.playbackRate) + 1) % rates.length];
+    document.getElementById('sl').innerText = `SLOW (${vd.playbackRate}x)`;
   }
 
   document.getElementById('up').onchange = (e) => {
@@ -138,24 +130,24 @@
     if (file) { vd.src = URL.createObjectURL(file); vd.onloadedmetadata = () => { sk.max = vd.duration; document.getElementById('tn').innerText = vd.duration.toFixed(2); vd.play(); pp.innerText = "‖"; stream(); }; }
   };
 
-  // iPad用：別タブで開いて長押し保存させる方式
   function toggleRec() {
-    const btn = document.getElementById('recBtn');
+    const btn = document.getElementById('recBtn'), link = document.getElementById('save-area');
     if (!recorder || recorder.state === 'inactive') {
       chunks = [];
+      link.style.display = 'none';
       const streamCanvas = cv.captureStream(25);
+      // iPad Safariでの互換性を最大化
       recorder = new MediaRecorder(streamCanvas, { mimeType: 'video/mp4' });
       recorder.ondataavailable = (e) => chunks.push(e.data);
       recorder.onstop = () => {
         const blob = new Blob(chunks, { type: 'video/mp4' });
         const url = URL.createObjectURL(blob);
-        // 新しいタブで動画を開く
-        const newTab = window.open();
-        newTab.document.write(`<video src="${url}" controls autoplay style="width:100%;height:auto;"></video><br><p style="font-size:20px; text-align:center;">動画を長押し、または共有アイコンから『ビデオを保存』してください</p>`);
-        btn.innerText = "● 解析動画を保存用に生成"; btn.classList.remove('rec-active');
+        link.href = url;
+        link.style.display = 'block'; // ここで保存リンクを表示
+        btn.innerText = "● 解析動画を書き出し"; btn.classList.remove('rec-active');
       };
       recorder.start();
-      btn.innerText = "■ 生成中...（もう一度押して完了）"; btn.classList.add('rec-active');
+      btn.innerText = "■ 書き出しを終了する"; btn.classList.add('rec-active');
     } else {
       recorder.stop();
     }
